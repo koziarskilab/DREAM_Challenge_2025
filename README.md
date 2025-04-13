@@ -1,0 +1,1 @@
+The dataset of the AIRCHECK mini challenge can be found at [GoogleDrive](https://drive.google.com/drive/folders/1Mt_ptjxfvFYA_sK4AklmURKBKoIF_SA-?usp=sharing).
