@@ -3,7 +3,8 @@ import matplotlib.pyplot as plt
 import io
 from PIL import Image as PILImage
 from IPython.display import Image, display
-import gcsfs
+
+# import gcsfs
 import datetime
 import enum
 from rdkit import Chem
@@ -22,8 +23,20 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-FINGERPRINT_TYPES = ['ATOMPAIR', 'MACCS', 'ECFP6',
-                     'ECFP4', 'FCFP4', 'FCFP6', 'TOPTOR', 'RDK', 'AVALON']
+import pyarrow.parquet as pq
+
+
+FINGERPRINT_TYPES = [
+    "ATOMPAIR",
+    "MACCS",
+    "ECFP6",
+    "ECFP4",
+    "FCFP4",
+    "FCFP6",
+    "TOPTOR",
+    "RDK",
+    "AVALON",
+]
 
 
 def display_google_drive_image(file_id):
@@ -36,7 +49,7 @@ def display_google_drive_image(file_id):
         The unique file ID from the Google Drive share link
     """
     # Direct download URL for Google Drive
-    direct_url = f'https://drive.google.com/uc?id={file_id}'
+    direct_url = f"https://drive.google.com/uc?id={file_id}"
 
     try:
         # Fetch the image
@@ -47,10 +60,8 @@ def display_google_drive_image(file_id):
         img = PILImage.open(io.BytesIO(response.content))
         plt.figure(figsize=(10, 10))
         plt.imshow(img)
-        plt.axis('off')
+        plt.axis("off")
         plt.show()
-
-    
 
     except Exception as e:
         print(f"Error displaying image: {e}")
@@ -90,8 +101,7 @@ class ProcessData:
 
     def __init__(self, data_frame: pd.DataFrame, column_name: str):
         if column_name not in data_frame.columns:
-            raise ValueError(
-                f"Column '{column_name}' not found in the DataFrame.")
+            raise ValueError(f"Column '{column_name}' not found in the DataFrame.")
 
         self.data_frame = data_frame
         self.column_name = column_name
@@ -101,7 +111,8 @@ class ProcessData:
         """Converts a column of comma-separated strings into a NumPy array."""
         return np.stack(
             self.data_frame[self.column_name].apply(
-                lambda x: np.fromstring(str(x), sep=',', dtype=np.float32))
+                lambda x: np.fromstring(str(x), sep=",", dtype=np.float32)
+            )
         )
 
     def get_data(self) -> np.ndarray:
@@ -120,29 +131,35 @@ class SimplifiedDrugFilters:
             "rotatable_bonds": Descriptors.NumRotatableBonds(molecule),
             "num_atoms": Chem.rdchem.Mol.GetNumAtoms(molecule),
             "molar_refractivity": Chem.Crippen.MolMR(molecule),
-            "topo_surface_area": Chem.QED.properties(molecule).PSA
+            "topo_surface_area": Chem.QED.properties(molecule).PSA,
         }
 
     def filter(self, smiles):
-        results = {"lipinski": [], "ghose": [],
-                   "veber": [], "pass_all_filters": []}
+        results = {"lipinski": [], "ghose": [], "veber": [], "pass_all_filters": []}
         molecules = [Chem.MolFromSmiles(i) for i in smiles]
 
         for i, mol in enumerate(molecules):
             props = self.fetch_attributes(mol)
 
             # Lipinski Rule of 5
-            lipinski = (props["molecular_weight"] <= 500 and props["logp"] <= 5 and
-                        props["h_bond_donor"] <= 5 and props["h_bond_acceptors"] <= 10 and
-                        props["rotatable_bonds"] <= 5)
+            lipinski = (
+                props["molecular_weight"] <= 500
+                and props["logp"] <= 5
+                and props["h_bond_donor"] <= 5
+                and props["h_bond_acceptors"] <= 10
+                and props["rotatable_bonds"] <= 5
+            )
 
             # Ghose Filter
-            ghose = (160 <= props["molecular_weight"] <= 480 and -0.4 <= props["logp"] <= 5.6 and
-                     20 <= props["num_atoms"] <= 70 and 40 <= props["molar_refractivity"] <= 130)
+            ghose = (
+                160 <= props["molecular_weight"] <= 480
+                and -0.4 <= props["logp"] <= 5.6
+                and 20 <= props["num_atoms"] <= 70
+                and 40 <= props["molar_refractivity"] <= 130
+            )
 
             # Veber Rule
-            veber = (props["rotatable_bonds"] <=
-                     10 and props["topo_surface_area"] <= 140)
+            veber = props["rotatable_bonds"] <= 10 and props["topo_surface_area"] <= 140
 
             results["lipinski"].append(lipinski)
             results["ghose"].append(ghose)
@@ -167,25 +184,32 @@ class SimplifiedDrugFilters:
         return clusters
 
 
-class ResultSubmission:
-    @staticmethod
-    def submit_result(team_name, df_predictions_test):
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        file_name = f"{team_name}_{timestamp}.csv"
-        try:
+# class ResultSubmission:
+#     @staticmethod
+#     def submit_result(team_name, df_predictions_test):
+#         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+#         file_name = f"{team_name}_{timestamp}.csv"
+#         try:
 
-            gcs_path = f"gs://aircheck-workshop-writeonly/results/{file_name}"
-            fs = gcsfs.GCSFileSystem(anonymous=True)
-            with fs.open(gcs_path, 'w') as f:
-                df_predictions_test.to_csv(f, index=False)
-            print(f"Successfully wrote best_nominees for {team_name}")
+#             gcs_path = f"gs://aircheck-workshop-writeonly/results/{file_name}"
+#             fs = gcsfs.GCSFileSystem(anonymous=True)
+#             with fs.open(gcs_path, 'w') as f:
+#                 df_predictions_test.to_csv(f, index=False)
+#             print(f"Successfully wrote best_nominees for {team_name}")
 
-        except Exception as e:
-            print(f"An error occurred: {str(e)}")
+#         except Exception as e:
+#             print(f"An error occurred: {str(e)}")
 
 
 if __name__ == "__main__":
-    data_frame = Dataset("./TrainDataset_Aircheck_class0_1x.parquet")
+    data_frame = Dataset(
+        "/h/yfjiang/research/DREAM_Challenge_2025/AIRCHECK_mini_challenge/TrainDataset_Aircheck_1.parquet"
+    )
+    # arrow_dataset = pq.ParquetDataset("/h/yfjiang/research/DREAM_Challenge_2025/AIRCHECK_mini_challenge/TrainDataset_Aircheck_1.parquet")
+    arrow_table = arrow_dataset.read()
+    pandas_df = arrow_table.to_pandas()
+    print(pandas_df)
+
     df_train = data_frame.get_dataframe()
     print(df_train.head())
     N = 1
@@ -196,7 +220,8 @@ if __name__ == "__main__":
 
     # Select N times more rows where DELLabel == 0 (negative samples)
     negative_samples = df_train[df_train["DELLabel"] == 0].sample(
-        n=len(positive_samples) * N, random_state=42)
+        n=len(positive_samples) * N, random_state=42
+    )
 
     # Combine both subsets to create a balanced dataset with the desired ratio
     df_balanced = pd.concat([positive_samples, negative_samples])
