@@ -198,6 +198,10 @@ def main(args):
         selected = selection_50[selection_50["Score"] >= th].shape[0]
         cluster_prauc_50 = 1/selected if selected > 0 else 0
         print(f"Cluster PRAUC for top 50 (single cluster): {cluster_prauc_50:.4f}")
+    elif clusters_50 == 0:
+        # No clusters case
+        cluster_prauc_50 = 0
+        print(f"No clusters found in top 50 selection. Cluster PRAUC set to 0.")
     
     # Calculate cluster PRAUC for top 200
     cluster_prauc_200 = None
@@ -227,6 +231,10 @@ def main(args):
         selected = selection_200[selection_200["Score"] >= th].shape[0]
         cluster_prauc_200 = 1/selected if selected > 0 else 0
         print(f"Cluster PRAUC for top 200 (single cluster): {cluster_prauc_200:.4f}")
+    elif clusters_200 == 0:
+        # No clusters case
+        cluster_prauc_200 = 0
+        print(f"No clusters found in top 200 selection. Cluster PRAUC set to 0.")
     
     # Calculate cluster PRAUC for top 500
     cluster_prauc_500 = None
@@ -256,6 +264,10 @@ def main(args):
         selected = selection_500[selection_500["Score"] >= th].shape[0]
         cluster_prauc_500 = 1/selected if selected > 0 else 0
         print(f"Cluster PRAUC for top 500 (single cluster): {cluster_prauc_500:.4f}")
+    elif clusters_500 == 0:
+        # No clusters case
+        cluster_prauc_500 = 0
+        print(f"No clusters found in top 500 selection. Cluster PRAUC set to 0.")
     
     # Update the results CSV file with all metrics
     update_results_csv(
