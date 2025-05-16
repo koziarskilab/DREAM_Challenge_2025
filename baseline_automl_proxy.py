@@ -12,6 +12,7 @@ from sklearn.metrics import (
 import datetime
 
 def update_results_csv(parent_dir, model_type, fps_type, prauc, roc_auc, metric,
+                       hits_50=None, clusters_50=None, cluster_prauc_50=None,
                        hits_200=None, clusters_200=None, cluster_prauc_200=None,
                        hits_500=None, clusters_500=None, cluster_prauc_500=None):
     # Define the CSV file path
@@ -29,6 +30,12 @@ def update_results_csv(parent_dir, model_type, fps_type, prauc, roc_auc, metric,
     }
     
     # Add cluster metrics if provided
+    if hits_50 is not None:
+        new_data["Hits_Top50"] = hits_50
+    if clusters_50 is not None:
+        new_data["Clusters_Top50"] = clusters_50
+    if cluster_prauc_50 is not None:
+        new_data["ClusterPRAUC_Top50"] = cluster_prauc_50
     if hits_200 is not None:
         new_data["Hits_Top200"] = hits_200
     if clusters_200 is not None:
@@ -92,7 +99,7 @@ def main(args):
     # Train the model using FLAML AutoML
     automl = AutoML()
     automl_settings = {
-        "time_budget": 100,
+        "time_budget": 7200,
         "metric": args.metric,  # Use the metric provided via command-line
         "task": "classification",
         "estimator_list": [args.model_type],
@@ -101,14 +108,17 @@ def main(args):
         "n_splits": 5,
         "seed": 42,
     }
-    automl.fit(X_train=TrainData, y_train=TrainLabel, **automl_settings)
-
-    # No need for saving the model
-    # import pickle
-
-    # best_model_path = os.path.join(args.log_dir, "best_model.pkl")
-    # with open(best_model_path, "wb") as f:
-    #     pickle.dump(automl, f, pickle.HIGHEST_PROTOCOL)
+    
+    try:
+        automl.fit(X_train=TrainData, y_train=TrainLabel, **automl_settings)
+    except ValueError as e:
+        if "y should be a 1d array" in str(e):
+            print(f"Error with metric '{args.metric}': {e}")
+            print("Falling back to default 'ap' metric")
+            automl_settings["metric"] = "ap"  # Fall back to average precision
+            automl.fit(X_train=TrainData, y_train=TrainLabel, **automl_settings)
+        else:
+            raise  # Re-raise any other ValueError
 
     # Evaluate the final model
     probabilities = automl.predict_proba(ValData)[:, 1]
@@ -118,7 +128,6 @@ def main(args):
     prauc = average_precision_score(ValLabel, probabilities)
     print(f"PRAUC on validation set: {prauc:.4f}")
 
-    # Replace the section after calculating ROC-AUC with:
     # Calculate ROC-AUC
     roc_auc = roc_auc_score(ValLabel, probabilities)
     print(f"ROC-AUC on validation set: {roc_auc:.4f}")
@@ -130,12 +139,21 @@ def main(args):
     # Create sorted index array based on probabilities (descending)
     sorted_indices = probabilities.argsort()[::-1]
     
+    # Create selection for top 50
+    selection_50 = df_val.iloc[sorted_indices[:50]].copy()
+    selection_50["Score"] = probabilities[sorted_indices[:50]]
+    
     # Create selections at different thresholds
     selection_200 = df_val.iloc[sorted_indices[:200]].copy()
     selection_200["Score"] = probabilities[sorted_indices[:200]]
     
     selection_500 = df_val.iloc[sorted_indices[:500]].copy()
     selection_500["Score"] = probabilities[sorted_indices[:500]]
+    
+    # Calculate metrics for top 50 compounds
+    hits_50 = selection_50[selection_50["LABEL"] == 1]
+    n_hits_50 = hits_50.shape[0]
+    clusters_50 = hits_50.drop_duplicates("CLUSTER_LABEL").shape[0]
     
     # Calculate metrics for top 200 compounds
     hits_200 = selection_200[selection_200["LABEL"] == 1]
@@ -148,8 +166,38 @@ def main(args):
     clusters_500 = hits_500.drop_duplicates("CLUSTER_LABEL").shape[0]
     
     print(f"All positive clusters in validation set: {all_clusters}")
+    print(f"Top 50 selection - Hits: {n_hits_50}, Unique clusters: {clusters_50}")
     print(f"Top 200 selection - Hits: {n_hits_200}, Unique clusters: {clusters_200}")
     print(f"Top 500 selection - Hits: {n_hits_500}, Unique clusters: {clusters_500}")
+    
+    # Calculate cluster PRAUC for top 50
+    cluster_prauc_50 = None
+    if clusters_50 > 1:
+        # Calculate cluster PRAUC
+        cluster_recall_50 = []
+        cluster_precision_50 = []
+        
+        for th in sorted(hits_50["Score"].unique(), reverse=True):
+            found = hits_50[hits_50["Score"] >= th].drop_duplicates("CLUSTER_LABEL").shape[0]
+            cluster_recall_50.append(found/all_clusters)
+            selected = selection_50[selection_50["Score"] >= th].shape[0]
+            cluster_precision_50.append(found/selected if selected > 0 else 0)
+        
+        # Check if we have enough points for AUC calculation
+        if len(cluster_recall_50) >= 2:
+            cluster_prauc_50 = auc(cluster_recall_50, cluster_precision_50)
+            print(f"Cluster PRAUC for top 50: {cluster_prauc_50:.4f}")
+        else:
+            # Handle the case where there's only one point
+            print("Not enough points to calculate Cluster PRAUC for top 50")
+            cluster_prauc_50 = cluster_precision_50[0] if cluster_precision_50 else 0
+            print(f"Using single point precision for top 50: {cluster_prauc_50:.4f}")
+    elif clusters_50 == 1:
+        # Single cluster case
+        th = hits_50["Score"].min()
+        selected = selection_50[selection_50["Score"] >= th].shape[0]
+        cluster_prauc_50 = 1/selected if selected > 0 else 0
+        print(f"Cluster PRAUC for top 50 (single cluster): {cluster_prauc_50:.4f}")
     
     # Calculate cluster PRAUC for top 200
     cluster_prauc_200 = None
@@ -164,8 +212,15 @@ def main(args):
             selected = selection_200[selection_200["Score"] >= th].shape[0]
             cluster_precision_200.append(found/selected if selected > 0 else 0)
         
-        cluster_prauc_200 = auc(cluster_recall_200, cluster_precision_200)
-        print(f"Cluster PRAUC for top 200: {cluster_prauc_200:.4f}")
+        # Check if we have enough points for AUC calculation
+        if len(cluster_recall_200) >= 2:
+            cluster_prauc_200 = auc(cluster_recall_200, cluster_precision_200)
+            print(f"Cluster PRAUC for top 200: {cluster_prauc_200:.4f}")
+        else:
+            # Handle the case where there's only one point
+            print("Not enough points to calculate Cluster PRAUC for top 200")
+            cluster_prauc_200 = cluster_precision_200[0] if cluster_precision_200 else 0
+            print(f"Using single point precision for top 200: {cluster_prauc_200:.4f}")
     elif clusters_200 == 1:
         # Single cluster case
         th = hits_200["Score"].min()
@@ -186,8 +241,15 @@ def main(args):
             selected = selection_500[selection_500["Score"] >= th].shape[0]
             cluster_precision_500.append(found/selected if selected > 0 else 0)
         
-        cluster_prauc_500 = auc(cluster_recall_500, cluster_precision_500)
-        print(f"Cluster PRAUC for top 500: {cluster_prauc_500:.4f}")
+        # Check if we have enough points for AUC calculation
+        if len(cluster_recall_500) >= 2:
+            cluster_prauc_500 = auc(cluster_recall_500, cluster_precision_500)
+            print(f"Cluster PRAUC for top 500: {cluster_prauc_500:.4f}")
+        else:
+            # Handle the case where there's only one point
+            print("Not enough points to calculate Cluster PRAUC for top 500")
+            cluster_prauc_500 = cluster_precision_500[0] if cluster_precision_500 else 0
+            print(f"Using single point precision for top 500: {cluster_prauc_500:.4f}")
     elif clusters_500 == 1:
         # Single cluster case
         th = hits_500["Score"].min()
@@ -198,6 +260,7 @@ def main(args):
     # Update the results CSV file with all metrics
     update_results_csv(
         parent_dir, args.model_type, args.fps_type, prauc, roc_auc, args.metric,
+        n_hits_50, clusters_50, cluster_prauc_50,
         n_hits_200, clusters_200, cluster_prauc_200,
         n_hits_500, clusters_500, cluster_prauc_500
     )
