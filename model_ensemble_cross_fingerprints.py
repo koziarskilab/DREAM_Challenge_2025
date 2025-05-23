@@ -392,14 +392,14 @@ def main(args):
     # Use the 8 specific low-correlation model pairs from our analysis
     # These are the pairs that ensure all 15 top models appear at least once
     predefined_pairs = [
-        [("MACCS", "kneighbor"), ("ATOMPAIR", "catboost")],
-        [("MACCS", "kneighbor"), ("RDK", "catboost")],
-        [("AVALON", "lrl1"), ("ATOMPAIR", "xgboost")],
-        [("RDK", "histgb"), ("ATOMPAIR", "lgbm")],
-        [("AVALON", "rf"), ("RDK", "extra_tree")],
-        [("AVALON", "xgb_limitdepth"), ("ATOMPAIR", "rf")],
-        [("AVALON", "histgb"), ("ATOMPAIR", "histgb")],
-        [("AVALON", "xgboost"), ("AVALON", "extra_tree")]
+        [("AVALON", "xgboost"), ("MACCS", "kneighbor")],
+        [("AVALON", "rf"), ("MACCS", "kneighbor")],
+        [("ATOMPAIR", "rf"), ("AVALON", "xgb_limitdepth")],
+        [("AVALON", "histgb"), ("ATOMPAIR", "xgboost")],
+        [("AVALON", "extra_tree"), ("ATOMPAIR", "histgb")],
+        [("RDK", "catboost"), ("ATOMPAIR", "lgbm")],
+        [("ATOMPAIR", "catboost"), ("RDK", "extra_tree")],
+        [("ATOMPAIR", "lgbm"), ("RDK", "histgb")]
     ]
     
     print(f"Using {len(predefined_pairs)} predefined low-correlation pairs")

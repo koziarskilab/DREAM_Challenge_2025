@@ -29,14 +29,14 @@ MAX_PAIRS_VALUES=(5)
 
 echo "Running cross-fingerprint ensemble with predefined low-correlation pairs..."
 echo "The script will automatically use the 8 predefined pairs from correlation analysis:"
-echo "  1. MACCS_kneighbor & ATOMPAIR_catboost"
-echo "  2. MACCS_kneighbor & RDK_catboost"
-echo "  3. AVALON_lrl1 & ATOMPAIR_xgboost"
-echo "  4. RDK_histgb & ATOMPAIR_lgbm"
-echo "  5. AVALON_rf & RDK_extra_tree"
-echo "  6. AVALON_xgb_limitdepth & ATOMPAIR_rf"
-echo "  7. AVALON_histgb & ATOMPAIR_histgb"
-echo "  8. AVALON_xgboost & AVALON_extra_tree"
+echo "  1. AVALON_xgboost & MACCS_kneighbor"
+echo "  2. AVALON_rf & MACCS_kneighbor"
+echo "  3. ATOMPAIR_rf & AVALON_xgb_limitdepth"
+echo "  4. AVALON_histgb & ATOMPAIR_xgboost"
+echo "  5. AVALON_extra_tree & ATOMPAIR_histgb"
+echo "  6. RDK_catboost & ATOMPAIR_lgbm"
+echo "  7. ATOMPAIR_catboost & RDK_extra_tree"
+echo "  8. ATOMPAIR_lgbm & RDK_histgb"
 echo "----------------------------------------"
 
 # Run experiments for each ensemble method and max_pairs combination
