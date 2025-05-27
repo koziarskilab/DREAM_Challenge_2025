@@ -411,8 +411,9 @@ def main(args):
     print(f"Using ensemble method: {args.ensemble_method}")
     print(f"Maximum pairs per combination: {args.max_pairs}")
     
-    # Generate all combinations from size 1 to max_pairs
+    # Initialize results list and summary file path
     all_results = []
+    summary_path = os.path.join(args.log_dir, "combination_summary.csv")
     
     print(f"\nEvaluating all combinations from size 1 to {args.max_pairs}")
     
@@ -468,18 +469,22 @@ def main(args):
                 results['pairs_used'] = ' + '.join(pair_names)
                 all_results.append(results)
                 print(f"Combination completed successfully with PRAUC: {results['prauc']:.4f}")
+                
+                # Save/update the CSV file after each successful combination
+                summary_df = pd.DataFrame(all_results)
+                summary_df.to_csv(summary_path, index=False)
+                print(f"Updated summary saved to {summary_path} ({len(all_results)} combinations)")
+                
             else:
                 print("Combination failed.")
     
-    # Save comprehensive summary of all combinations
+    # Final summary and analysis (keeping the existing end summary)
     if all_results:
-        summary_df = pd.DataFrame(all_results)
-        summary_path = os.path.join(args.log_dir, "combination_summary.csv")
-        summary_df.to_csv(summary_path, index=False)
         print(f"\nComprehensive summary of all combinations saved to {summary_path}")
-        print(f"Summary contains {len(summary_df)} combinations with all metrics")
+        print(f"Final summary contains {len(all_results)} combinations with all metrics")
         
         # Print best combinations for each size
+        summary_df = pd.DataFrame(all_results)
         print(f"\n=== SUMMARY OF BEST COMBINATIONS ===")
         for size in sorted(summary_df['combo_size'].unique()):
             size_df = summary_df[summary_df['combo_size'] == size]

@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=DREAM_BASELINE_SEL_PROXY   # General job name
+#SBATCH --job-name=DREAM_BASELINE_SEL_PROXY_Part8   # General job name
 #SBATCH --partition=cpu
 #SBATCH --cpus-per-task=32           # Number of CPU cores
 #SBATCH --mem=128G                   # Memory allocation
@@ -32,13 +32,13 @@ MODEL_TYPES=(
 )
 METRICS=(
   # Classification metrics
-  "accuracy"          # 1 - accuracy (to minimize)
-  "log_loss"          # Default for multiclass classification
-  "roc_auc"           # 1 - roc_auc_score (Default for binary classification)
-  "roc_auc_weighted"  # ROC AUC with average="weighted"
-  "f1"                # 1 - f1_score
-  "micro_f1"          # 1 - f1_score with average="micro"
-  "macro_f1"          # 1 - f1_score with average="macro"
+#   "accuracy"          # 1 - accuracy (to minimize)
+#   "log_loss"          # Default for multiclass classification
+#   "roc_auc"           # 1 - roc_auc_score (Default for binary classification)
+#   "roc_auc_weighted"  # ROC AUC with average="weighted"
+#   "f1"                # 1 - f1_score
+#   "micro_f1"          # 1 - f1_score with average="micro"
+#   "macro_f1"          # 1 - f1_score with average="macro"
   "ap"                # 1 - average_precision_score (PRAUC)
 )
 

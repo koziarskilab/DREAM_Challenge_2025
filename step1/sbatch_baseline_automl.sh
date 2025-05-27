@@ -6,6 +6,8 @@
 #SBATCH --time=4-00:00:00            # Time limit
 #SBATCH --output=./runs/DREAM/%x_%j.log    # Output log file
 #SBATCH --qos=nopreemption
+#SBATCH --mail-user=yifan.jiang@sickkids.ca
+#SBATCH --mail-type=ALL
 
 # Load necessary modules (if applicable)
 source ~/.zshrc
@@ -19,16 +21,17 @@ JOB_NAME=${SLURM_JOB_NAME}
 BASE_LOG_DIR="./runs/DREAM/${JOB_NAME}_${JOB_ID}"
 
 # Define the options for fps_type and model_type
-FPS_TYPES=("MACCS" "RDK" "AVALON" "ATOMPAIR")
+# FPS_TYPES=("MACCS" "RDK" "AVALON" "ATOMPAIR")
+FPS_TYPES=("ATOMPAIR")
 MODEL_TYPES=(
-  "lgbm"              # LightGBM
-  "xgboost"           # XGBoost with default settings
+  # "lgbm"              # LightGBM
+  # "xgboost"           # XGBoost with default settings
+  # "rf"                # Random Forest
+  # "extra_tree"        # Extra Trees Classifier
+  # "histgb"            # Histogram-based Gradient Boosting
+  #-----------------------------------------------------------#
   "xgb_limitdepth"    # XGBoost with max_depth parameter
-  "rf"                # Random Forest
-  "extra_tree"        # Extra Trees Classifier
-  "histgb"            # Histogram-based Gradient Boosting
   "lrl1"              # Logistic Regression with L1 regularization
-  "lrl2"              # Logistic Regression with L2 regularization
   "catboost"          # CatBoost Classifier
   "kneighbor"         # K-Nearest Neighbors
 )

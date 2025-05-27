@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=MODEL_ENSEMBLE_CROSS_FPS_simple_average   # Updated job name
+#SBATCH --job-name=MODEL_ENSEMBLE_CROSS_FPS_simple_average_8   # Updated job name
 #SBATCH --partition=cpu
 #SBATCH --cpus-per-task=32           # Number of CPU cores
 #SBATCH --mem=128G                   # Memory allocation
@@ -25,7 +25,7 @@ mkdir -p ${LOG_DIR}
 ENSEMBLE_METHODS=("simple_average")
 
 # Define different max_pairs values to test
-MAX_PAIRS_VALUES=(5)
+MAX_PAIRS_VALUES=(8)
 
 echo "Running cross-fingerprint ensemble with predefined low-correlation pairs..."
 echo "The script will automatically use the 8 predefined pairs from correlation analysis:"

@@ -29,8 +29,10 @@ def generate_test_predictions():
     print(f"First few column names: {df_test.columns[:10].tolist()}")
     
     # Define your best ensemble model components
-    # New ensemble: 5 pairs = 10 models total
+    # New ensemble: 6 pairs = 12 models total
     best_ensemble_specs = [
+        ("ATOMPAIR", "rf"),
+        ("AVALON", "xgb_limitdepth"),
         ("AVALON", "histgb"),
         ("ATOMPAIR", "xgboost"),
         ("AVALON", "extra_tree"),
@@ -154,7 +156,7 @@ def generate_test_predictions():
 if __name__ == "__main__":
     print("=== DREAM Challenge Step1 - Generating Test Set Predictions ===")
     print("Team: KoziarskiLab")
-    print("Best ensemble: (AVALON_histgb + ATOMPAIR_xgboost) + (AVALON_extra_tree + ATOMPAIR_histgb) + (RDK_catboost + ATOMPAIR_lgbm) + (ATOMPAIR_catboost + RDK_extra_tree) + (ATOMPAIR_lgbm + RDK_histgb)")
+    print("Best ensemble: (ATOMPAIR_rf_AVALON_xgb_limitdepth) + (AVALON_histgb_ATOMPAIR_xgboost) + (AVALON_extra_tree_ATOMPAIR_histgb) + (RDK_catboost_ATOMPAIR_lgbm) + (ATOMPAIR_catboost_RDK_extra_tree) + (ATOMPAIR_lgbm_RDK_histgb)")
     print("Ensemble method: median_vote")
     print("=" * 80)
     
