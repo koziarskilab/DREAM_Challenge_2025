@@ -20,7 +20,7 @@ from itertools import combinations
 
 def load_pretrained_model(fingerprint_type, model_type):
     """Load a pretrained model from the specified path"""
-    model_path = f"./runs/DREAM/DREAM_BASELINE_SEL/{fingerprint_type}_{model_type}/best_model.pkl"
+    model_path = f"../runs/DREAM/DREAM_BASELINE_SEL/{fingerprint_type}_{model_type}/best_model.pkl"
     
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"Model not found at {model_path}")
@@ -378,8 +378,8 @@ def main(args):
     os.makedirs(args.log_dir, exist_ok=True)
 
     # Load datasets
-    df_train = Dataset("./datasets/DREAM/Train_Dataset_DREAM.parquet").get_dataframe()
-    df_val = Dataset("./datasets/DREAM/Val_Dataset_DREAM.csv").get_dataframe()
+    df_train = Dataset("../datasets/DREAM/Train_Dataset_DREAM.parquet").get_dataframe()
+    df_val = Dataset("../datasets/DREAM/Val_Dataset_DREAM.csv").get_dataframe()
 
     print("------------------------------------------------------------")
     print("Number of binders in the training set:", (df_train["LABEL"] == 1).sum())

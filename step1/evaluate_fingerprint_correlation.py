@@ -14,7 +14,7 @@ def calculate_prediction_correlation(fps_types, model_types, output_dir):
     different fingerprint types.
     """
     # Hardcoded base directory
-    base_dir = "./runs/DREAM/DREAM_BASELINE_SEL"
+    base_dir = "../runs/DREAM/DREAM_BASELINE_SEL"
     
     print("Loading prediction files...")
     print(f"Using base directory: {base_dir}")

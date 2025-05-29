@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 def load_pretrained_model(fingerprint_type, model_type):
     """Load a pretrained model from the specified path"""
-    model_path = f"./runs/DREAM/DREAM_BASELINE_SEL/{fingerprint_type}_{model_type}/best_model.pkl"
+    model_path = f"../runs/DREAM/DREAM_BASELINE_SEL/{fingerprint_type}_{model_type}/best_model.pkl"
     
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"Model not found at {model_path}")
@@ -23,7 +23,7 @@ def generate_test_predictions():
     
     # Load test dataset
     print("Loading test dataset...")
-    df_test = Dataset("./datasets/DREAM/Step1_TestData_Target2035.parquet").get_dataframe()
+    df_test = Dataset("../datasets/DREAM/Step1_TestData_Target2035.parquet").get_dataframe()
     print(f"Test set shape: {df_test.shape}")
     print(f"Test set columns: {list(df_test.columns)}")
     print(f"First few column names: {df_test.columns[:10].tolist()}")
@@ -121,11 +121,11 @@ def generate_test_predictions():
     final_result = result_df[['RandomID', 'Sel_200', 'Sel_500', 'Score']].copy()
     
     # Ensure the output directory exists
-    output_dir = "./runs/DREAM"
+    output_dir = "../runs/DREAM"
     os.makedirs(output_dir, exist_ok=True)
     
     # Save results to the specified DREAM challenge submission path
-    output_path = "./runs/DREAM/TeamKoziarskiLab.csv"
+    output_path = "../runs/DREAM/TeamKoziarskiLab.csv"
     final_result.to_csv(output_path, index=False)
     
     print(f"\nDREAM Challenge Step1 results saved to: {output_path}")
@@ -147,7 +147,7 @@ def generate_test_predictions():
     for i, (fps_type, model_type) in enumerate(model_info):
         individual_predictions_df[f"{fps_type}_{model_type}"] = predictions_array[i]
     
-    individual_path = "./runs/DREAM/test_predictions_individual_models.csv"
+    individual_path = "../runs/DREAM/test_predictions_individual_models.csv"
     individual_predictions_df.to_csv(individual_path, index=False)
     print(f"Individual model predictions saved to: {individual_path}")
     
@@ -165,7 +165,7 @@ if __name__ == "__main__":
     if results is not None:
         print("\n" + "=" * 80)
         print("SUCCESS: DREAM Challenge Step1 predictions generated successfully!")
-        print("Submission file created: ./runs/DREAM/TeamKoziarskiLab.csv")
+        print("Submission file created: ../runs/DREAM/TeamKoziarskiLab.csv")
         print("File format: RandomID, Sel_200, Sel_500, Score")
         print("Ready for DREAM Challenge submission!")
     else:

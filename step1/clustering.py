@@ -5,9 +5,9 @@ from rdkit import DataStructs
 from rdkit.Chem import AllChem
 import numpy as np
 
-# Load the dataset
-file_path_0 = './datasets/DREAM/Val_Dataset_DREAM_0.parquet'
-file_path_1 = './datasets/DREAM/Val_Dataset_DREAM_1.parquet'
+# Load WDR91 validation sets
+file_path_0 = '../datasets/DREAM/Val_Dataset_DREAM_0.parquet'
+file_path_1 = '../datasets/DREAM/Val_Dataset_DREAM_1.parquet'
 data_0 = pd.read_parquet(file_path_0)
 data_0 = data_0.rename(columns={'BINARY_LABEL': 'LABEL'})  # For val data
 data_1 = pd.read_parquet(file_path_1)
@@ -18,6 +18,10 @@ print("Columns in data_1:", data_1.columns)
 # Merge data_0 and data_1 on their common columns
 common_columns = data_0.columns.intersection(data_1.columns)
 data = pd.concat([data_0[common_columns], data_1[common_columns]], ignore_index=True)
+
+# Load LRRK2 validation set
+# file_path = '../datasets/DREAM/Val_Dataset_DREAM_0.parquet'
+# data = pd.read_parquet(file_path)
 
 # Remove duplicate rows based on the 'SMILES' column
 data = data.drop_duplicates(subset='SMILES')

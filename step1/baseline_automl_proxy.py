@@ -74,8 +74,8 @@ def main(args):
     parent_dir = os.path.dirname(os.path.abspath(args.log_dir))
 
     # Load datasets
-    df_train = Dataset("./datasets/DREAM/LRRK2_DEL.parquet").get_dataframe()
-    df_val = Dataset("./datasets/DREAM/LRRK2_ASMS_clustered.csv").get_dataframe()
+    df_train = Dataset("../datasets/DREAM/LRRK2_DEL.parquet").get_dataframe()
+    df_val = Dataset("../datasets/DREAM/LRRK2_ASMS_clustered.csv").get_dataframe()
 
     print("Number of binders in the training set:", (df_train["LABEL"] == 1).sum())
     print("Number of non-binders in the training set:", (df_train["LABEL"] == 0).sum())
