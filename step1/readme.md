@@ -1,8 +1,8 @@
-# Step 1: DREAM Challenge 2025 - Baseline AutoML Evaluation
+# Step 1: Machine Learning model with FINGERPRINTS only
 
 ## Overview
 
-Step 1 of the DREAM Challenge 2025 focuses on establishing a robust baseline for compound selection using automated machine learning (AutoML). This step is divided into six main parts:
+Step 1 of the DREAM Challenge 2025 focuses on establishing a robust baseline for compound selection using automated machine learning (AutoML) with molecular fingerprints. This comprehensive approach systematically explores different molecular representations, machine learning algorithms, and ensemble strategies to maximize both classification performance and chemical diversity. The step is divided into six interconnected parts that build upon each other:
 
 1. **Part 1**: Data preprocessing and clustering analysis for the DREAM validation dataset
 2. **Part 2**: Identifying the optimal evaluation metric in FLAML AutoML that best correlates with the official challenge evaluation metrics
