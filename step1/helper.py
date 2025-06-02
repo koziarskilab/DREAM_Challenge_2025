@@ -38,42 +38,6 @@ FINGERPRINT_TYPES = [
     "AVALON",
 ]
 
-
-def display_google_drive_image(file_id):
-    """
-    Display an image from Google Drive in a local Jupyter Notebook
-
-    Parameters:
-    -----------
-    file_id : str
-        The unique file ID from the Google Drive share link
-    """
-    # Direct download URL for Google Drive
-    direct_url = f"https://drive.google.com/uc?id={file_id}"
-
-    try:
-        # Fetch the image
-        response = requests.get(direct_url)
-        response.raise_for_status()  # Raise an exception for bad status codes
-
-        # Open and display image using PIL and matplotlib
-        img = PILImage.open(io.BytesIO(response.content))
-        plt.figure(figsize=(10, 10))
-        plt.imshow(img)
-        plt.axis("off")
-        plt.show()
-
-    except Exception as e:
-        print(f"Error displaying image: {e}")
-        print("Troubleshooting tips:")
-        print("1. Ensure the image is publicly accessible")
-        print("2. Check the file ID is correct")
-        print("3. Verify your internet connection")
-
-
-"""Module for handling datasets."""
-
-
 @dataclass
 class Dataset:
     """Class for loading dataset from Parquet or CSV file."""
@@ -199,23 +163,6 @@ class SimplifiedDrugFilters:
                 clusters[idx].append(i)
         return clusters
 
-
-# class ResultSubmission:
-#     @staticmethod
-#     def submit_result(team_name, df_predictions_test):
-#         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-#         file_name = f"{team_name}_{timestamp}.csv"
-#         try:
-
-#             gcs_path = f"gs://aircheck-workshop-writeonly/results/{file_name}"
-#             fs = gcsfs.GCSFileSystem(anonymous=True)
-#             with fs.open(gcs_path, 'w') as f:
-#                 df_predictions_test.to_csv(f, index=False)
-#             print(f"Successfully wrote best_nominees for {team_name}")
-
-#         except Exception as e:
-#             print(f"An error occurred: {str(e)}")
-
 def read_parquet_file(file_path, columns=None, nrows=None):
     df = pd.read_parquet(file_path, columns=columns, engine='pyarrow')
     if nrows is not None:
@@ -230,32 +177,3 @@ def process_column_to_array(df, column_name):
         # Column is already array-like
         return np.stack(df[column_name])
 
-
-if __name__ == "__main__":
-    data_frame = Dataset(
-        "/h/yfjiang/research/DREAM_Challenge_2025/AIRCHECK_mini_challenge/TrainDataset_Aircheck_1.parquet"
-    )
-    # arrow_dataset = pq.ParquetDataset("/h/yfjiang/research/DREAM_Challenge_2025/AIRCHECK_mini_challenge/TrainDataset_Aircheck_1.parquet")
-    arrow_table = arrow_dataset.read()
-    pandas_df = arrow_table.to_pandas()
-    print(pandas_df)
-
-    df_train = data_frame.get_dataframe()
-    print(df_train.head())
-    N = 1
-
-    # Select all rows where DELLabel == 1 (positive samples)
-    positive_samples = df_train[df_train["DELLabel"] == 1]
-    print("length of positive sample", len(positive_samples))
-
-    # Select N times more rows where DELLabel == 0 (negative samples)
-    negative_samples = df_train[df_train["DELLabel"] == 0].sample(
-        n=len(positive_samples) * N, random_state=42
-    )
-
-    # Combine both subsets to create a balanced dataset with the desired ratio
-    df_balanced = pd.concat([positive_samples, negative_samples])
-
-    df_train = df_balanced
-    print(len(df_balanced))
-    # df_test =
