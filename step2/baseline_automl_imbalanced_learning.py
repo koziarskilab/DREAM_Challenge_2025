@@ -706,12 +706,12 @@ def main(args):
     if args.imbalanced == "DECOUPLING":
         model, best_val_prauc = train_model_decoupling(
             model, train_loader, val_loader, device, df_val, num_class_list,
-            epochs=2, lr=0.001, drw_start_epoch=1
+            epochs=200, lr=0.001, drw_start_epoch=100
         )
     elif args.imbalanced == "BBN":
         model, best_val_prauc = train_model_bbn(
             model, train_loader, val_loader, device, df_val, num_class_list,
-            epochs=1, lr=0.001
+            epochs=200, lr=0.001
         )
     else:
         # All other methods use the standard training loop
@@ -719,7 +719,7 @@ def main(args):
         model, best_val_prauc = train_model(
             model, train_loader, val_loader, loss_fn, device, df_val,
             method_type=args.imbalanced, num_class_list=num_class_list,
-            epochs=1, lr=0.001
+            epochs=200, lr=0.001
         )
 
     # Save the model
