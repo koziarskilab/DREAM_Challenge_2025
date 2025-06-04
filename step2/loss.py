@@ -3,7 +3,6 @@ import torch.nn as nn
 from torch.nn import functional as F
 import numpy as np
 
-
 def get_one_hot(targets, num_classes):
     """Convert targets to one-hot encoding"""
     return torch.eye(num_classes)[targets].to(targets.device)
@@ -41,6 +40,56 @@ class CrossEntropy(nn.Module):
     def update(self, epoch):
         """Update method for epoch-dependent changes"""
         pass
+
+
+class CDT(CrossEntropy):
+    """
+    Class-Dependent Temperatures (CDT) Loss
+    
+    Reference: 
+    Ye et al., Identifying and Compensating for Feature Deviation in Imbalanced Deep Learning, arXiv 2020.
+    
+    Equation: Loss(x, c) = -log(exp(x_c / a_c) / sum_i(exp(x_i / a_i)))
+    where a_j = (N_max/n_j)^gamma, gamma is a hyper-parameter, N_max is the number 
+    of images in the largest class, and n_j is the number of images in class j.
+    
+    Args:
+        gamma (float): Controls the punishment to feature deviation. 
+                      For binary classification, typically γ ∈ [0.0, 0.1]
+    """
+    
+    def __init__(self, para_dict=None):
+        super(CDT, self).__init__(para_dict)
+        self.gamma = self.para_dict["cfg"]["loss"]["CDT"]["GAMMA"]
+        
+        # Calculate class-dependent temperatures: a_j = (max(n_i) / n_j)^gamma
+        self.cdt_weight = torch.FloatTensor(
+            [(max(self.num_class_list) / i) ** self.gamma for i in self.num_class_list]
+        ).to(self.device)
+
+    def forward(self, inputs, targets, **kwargs):
+        """
+        Args:
+            inputs: prediction matrix (before softmax) with shape (batch_size, num_classes)
+            targets: ground truth labels with shape (batch_size)
+        """
+        # Apply class-dependent temperatures by dividing logits by temperature weights
+        temperature_adjusted_inputs = inputs / self.weight_list
+        loss = F.cross_entropy(temperature_adjusted_inputs, targets.long())
+        return loss
+
+    def update(self, epoch):
+        """
+        Args:
+            epoch: int. starting from 1.
+        """
+        if not self.drw:
+            self.weight_list = self.cdt_weight
+        else:
+            self.weight_list = torch.ones(self.cdt_weight.shape).to(self.device)
+            start = (epoch - 1) // self.drw_start_epoch
+            if start:
+                self.weight_list = self.cdt_weight
 
 
 class ClassBalanceCE(CrossEntropy):
@@ -248,7 +297,7 @@ def get_loss_function(loss_type, num_class_list, device):
     Factory function to create loss functions
     
     Args:
-        loss_type: str, one of ['CE', 'CB_F', 'BS', 'CB_CE', 'CS', 'IB']
+        loss_type: str, one of ['CE', 'CB_F', 'BS', 'CB_CE', 'CS', 'IB', 'CDT']
         num_class_list: list of class sample counts
         device: torch device
     
@@ -277,6 +326,9 @@ def get_loss_function(loss_type, num_class_list, device):
                 "InfluenceBalancedLoss": {
                     "ALPHA": 1000.0,
                 },
+                "CDT": {
+                    "GAMMA": 0.1,  # Adjusted for binary classification
+                },
             },
             "train": {
                 "two_stage": {
@@ -299,8 +351,10 @@ def get_loss_function(loss_type, num_class_list, device):
         return CostSensitiveCE(para_dict)
     elif loss_type == "IB":
         return InfluenceBalancedLoss(para_dict)
+    elif loss_type == "CDT":
+        return CDT(para_dict)
     else:
-        raise ValueError(f"Unknown loss type: {loss_type}. Supported: ['CE', 'CB_F', 'BS', 'CB_CE', 'CS', 'IB']")
+        raise ValueError(f"Unknown loss type: {loss_type}. Supported: ['CE', 'CB_F', 'BS', 'CB_CE', 'CS', 'IB', 'CDT']")
 
 
 # Example usage:
@@ -316,6 +370,7 @@ if __name__ == "__main__":
     cb_ce_loss = get_loss_function("CB_CE", num_class_list, device)
     cs_loss = get_loss_function("CS", num_class_list, device)
     ib_loss = get_loss_function("IB", num_class_list, device)
+    cdt_loss = get_loss_function("CDT", num_class_list, device)  # New CDT loss
     
     # Example forward pass
     batch_size = 32
@@ -326,6 +381,7 @@ if __name__ == "__main__":
     # Standard losses
     ce_output = ce_loss(inputs, targets)
     cb_focal_output = cb_focal_loss(inputs, targets)
+    cdt_output = cdt_loss(inputs, targets)  # New CDT loss
     
     # For InfluenceBalancedLoss, we need features
     features = torch.randn(batch_size, 128).to(device)  # Example feature tensor
@@ -333,4 +389,5 @@ if __name__ == "__main__":
     
     print(f"CrossEntropy Loss: {ce_output.item():.4f}")
     print(f"Class-Balanced Focal Loss: {cb_focal_output.item():.4f}")
+    print(f"CDT Loss: {cdt_output.item():.4f}")
     print(f"Influence-Balanced Loss: {ib_output.item():.4f}")
