@@ -47,8 +47,8 @@ for fps_type in "${FPS_TYPES[@]}"; do
         mkdir -p ${LOG_DIR}
 
         # Run the Python script with the current combination
-        echo "Running baseline_automl_imbalanced_learning.py with --fps_type=${fps_type}, --imbalanced=${imbalanced_method}"
-        python3 baseline_automl_imbalanced_learning.py \
+        echo "Running baseline_imbalanced_learning.py with --fps_type=${fps_type}, --imbalanced=${imbalanced_method}"
+        python3 baseline_imbalanced_learning.py \
             --log_dir ${LOG_DIR} \
             --fps_type ${fps_type} \
             --imbalanced ${imbalanced_method}
