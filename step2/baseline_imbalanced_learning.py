@@ -653,7 +653,7 @@ def main(args):
 
     # Load datasets
     df_train = Dataset("../datasets/DREAM/Train_Dataset_DREAM.parquet").get_dataframe()
-    df_val = Dataset("../datasets/DREAM/Val_Dataset_DREAM.csv").get_dataframe()
+    df_val = Dataset("../datasets/DREAM/Val_Dataset_DREAM_Step2.csv").get_dataframe()
 
     print("------------------------------------------------------------")
     print("Number of binders in the training set:", (df_train["LABEL"] == 1).sum())
