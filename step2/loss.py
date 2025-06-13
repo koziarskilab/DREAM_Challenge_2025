@@ -253,30 +253,45 @@ class InfluenceBalancedLoss(CrossEntropy):
             # Fallback to standard cross entropy if no features provided
             return F.cross_entropy(inputs, targets.long(), weight=self.weight_list)
         
-        # Calculate gradients for influence
-        grads = torch.sum(
-            torch.softmax(inputs, dim=1) * inputs
-            - F.one_hot(targets.to(torch.int64), self.num_classes) * inputs,
-            1,
-        )
-        
-        # Calculate influence-based weights
-        # Ensure feature is properly shaped - take mean across feature dimensions
-        if len(feature.shape) > 1:
-            feature_norm = torch.mean(feature, dim=1)  # Average across feature dimensions
-        else:
-            feature_norm = feature
+        # Ensure inputs require gradients for proper gradient computation
+        if not inputs.requires_grad:
+            inputs.requires_grad_(True)
             
-        ib = grads * feature_norm
-        ib = self.alpha / (ib + 1e-3)
+        # Calculate probabilities
+        probs = F.softmax(inputs, dim=1)
+        targets_one_hot = F.one_hot(targets.to(torch.int64), self.num_classes).float()
         
-        # Apply influence-balanced loss
-        ib_loss = (
-            F.cross_entropy(
-                inputs, targets.long(), reduction="none", weight=self.weight_list
-            )
-            * ib
+        # Calculate the gradient of cross-entropy loss w.r.t. logits
+        # This is: p_i - y_i for each class i
+        grad_logits = probs - targets_one_hot
+        
+        # Calculate influence based on feature magnitude and gradient
+        # Use L2 norm of features instead of mean
+        if len(feature.shape) > 2:
+            # If feature has spatial dimensions, pool them
+            feature = F.adaptive_avg_pool2d(feature, 1).squeeze()
+        
+        # Calculate feature norm (L2 norm)
+        feature_norm = torch.norm(feature, p=2, dim=1, keepdim=True)
+        
+        # Calculate gradient norm for each sample
+        grad_norm = torch.norm(grad_logits, p=2, dim=1, keepdim=True)
+        
+        # Influence calculation: larger gradients and features should have more influence
+        influence = self.alpha * feature_norm * grad_norm
+        influence = influence.squeeze()
+        
+        # Clamp influence to prevent extreme values
+        influence = torch.clamp(influence, min=0.1, max=10.0)
+        
+        # Calculate weighted cross-entropy loss
+        ce_loss = F.cross_entropy(
+            inputs, targets.long(), reduction="none", weight=self.weight_list
         )
+        
+        # Apply influence weighting
+        ib_loss = ce_loss * influence
+        
         return ib_loss.mean()
 
     def update(self, epoch):
