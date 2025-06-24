@@ -251,74 +251,57 @@ def main(args):
     print("Number of non-binders in the validation set:", (df_val["LABEL"] == 0).sum())
     print("------------------------------------------------------------")
     
-    # Parse fingerprint types
-    fps_types = [fp.strip() for fp in args.fps_types.split(',')]
-    
-    # Validate fingerprint types
-    valid_fps = ["MACCS", "RDK", "AVALON", "ATOMPAIR"]
-    for fp in fps_types:
-        if fp not in valid_fps:
-            raise ValueError(f"Unsupported fingerprint type: {fp}. Valid types: {valid_fps}")
-    
-    print(f"Fingerprint types to evaluate: {fps_types}")
-    
-    # Generate combinations with 2 or more fingerprints only
-    all_combinations = []
-    for r in range(2, len(fps_types) + 1):  # Start from 2 instead of 1
-        for combo in combinations(fps_types, r):
-            all_combinations.append(combo)
-    
-    print(f"Total multi-fingerprint combinations to evaluate: {len(all_combinations)}")
-    
-    # Print what combinations will be evaluated
-    print("Combinations to be evaluated:")
-    for i, combo in enumerate(all_combinations, 1):
-        print(f"  {i}. {','.join(combo)}")
-    print("------------------------------------------------------------")
-    
-    # Store results for summary
-    results_summary = []
-    
-    # Evaluate each combination
-    for i, fps_combination in enumerate(all_combinations, 1):
-        print(f"\nProcessing combination {i}/{len(all_combinations)}")
-        result = train_and_evaluate_combination(fps_combination, df_train, df_val, args, parent_dir)
+    # Check if this is a combination run
+    if "," in args.fps_type:
+        # This is a combination run - evaluate ONLY the exact combination specified
+        fps_types = [fp.strip() for fp in args.fps_type.split(',')]
+        
+        # Validate fingerprint types
+        valid_fps = ["MACCS", "RDK", "AVALON", "ATOMPAIR"]
+        for fp in fps_types:
+            if fp not in valid_fps:
+                raise ValueError(f"Unsupported fingerprint type: {fp}. Valid types: {valid_fps}")
+        
+        print(f"Evaluating exact fingerprint combination: {fps_types} with {args.model_type}")
+        
+        # Evaluate only the specified combination
+        result = train_and_evaluate_combination(tuple(fps_types), df_train, df_val, args, parent_dir)
+        
         if result:
-            results_summary.append(result)
+            print(f"\n{'='*80}")
+            print(f"RESULT FOR FINGERPRINT COMBINATION: {result['combination']} WITH {args.model_type}")
+            print(f"{'='*80}")
+            print(f"PRAUC: {result['prauc']:.4f}")
+            print(f"ROC-AUC: {result['roc_auc']:.4f}")
+            print(f"Top 50 - Hits: {result['hits_50']}, Clusters: {result['clusters_50']}")
+        else:
+            print("Combination evaluation failed.")
     
-    # Print summary of all results
-    print(f"\n{'='*80}")
-    print("SUMMARY OF ALL MULTI-FINGERPRINT COMBINATIONS")
-    print(f"{'='*80}")
-    
-    if results_summary:
-        # Sort by ROC-AUC (or you can change to PRAUC)
-        results_summary.sort(key=lambda x: x['roc_auc'], reverse=True)
-        
-        print(f"{'Rank':<4} {'Combination':<40} {'PRAUC':<8} {'ROC-AUC':<8} {'Top50-Hits':<10} {'Top50-Clusters':<12}")
-        print("-" * 90)
-        
-        for i, result in enumerate(results_summary, 1):
-            print(f"{i:<4} {result['combination']:<40} {result['prauc']:<8.4f} {result['roc_auc']:<8.4f} "
-                  f"{result['hits_50']:<10} {result['clusters_50']:<12}")
-        
-        # Save summary to CSV
-        summary_df = pd.DataFrame(results_summary)
-        summary_path = os.path.join(parent_dir, "combinations_summary.csv")
-        summary_df.to_csv(summary_path, index=False)
-        print(f"\nSummary saved to: {summary_path}")
-        
-        # Print best combination
-        best_result = results_summary[0]
-        print(f"\nBest multi-fingerprint combination by ROC-AUC: {best_result['combination']}")
-        print(f"ROC-AUC: {best_result['roc_auc']:.4f}, PRAUC: {best_result['prauc']:.4f}")
     else:
-        print("No successful combinations found.")
+        # Single fingerprint type - use original logic
+        selected_fps = args.fps_type
+        if selected_fps not in ["MACCS", "RDK", "AVALON", "ATOMPAIR"]:
+            raise ValueError(f"Unsupported fingerprint type: {selected_fps}")
+
+        print(f"Single fingerprint processing with {args.model_type}: {selected_fps}")
+        
+        # Evaluate the single fingerprint type
+        result = train_and_evaluate_combination((selected_fps,), df_train, df_val, args, parent_dir)
+        
+        if result:
+            print(f"\n{'='*80}")
+            print(f"RESULT FOR SINGLE FINGERPRINT: {result['combination']} WITH {args.model_type}")
+            print(f"{'='*80}")
+            print(f"PRAUC: {result['prauc']:.4f}")
+            print(f"ROC-AUC: {result['roc_auc']:.4f}")
+            print(f"Top 50 - Hits: {result['hits_50']}, Clusters: {result['clusters_50']}")
+        else:
+            print("Single fingerprint evaluation failed.")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Train ensemble models with multiple fingerprint combinations for DREAM Challenge 2025"
+        description="Train ensemble models with fingerprint combinations for DREAM Challenge 2025"
     )
     parser.add_argument(
         "--log_dir",
@@ -327,10 +310,10 @@ if __name__ == "__main__":
         help="Directory to save logs and model checkpoints",
     )
     parser.add_argument(
-        "--fps_types",
+        "--fps_type",
         type=str,
         required=True,
-        help="Comma-separated fingerprint types: e.g., 'MACCS,RDK,AVALON,ATOMPAIR'",
+        help="Fingerprint type: single ['MACCS', 'RDK', 'AVALON', 'ATOMPAIR'] or comma-separated combinations (e.g., 'MACCS,RDK,AVALON,ATOMPAIR')",
     )
     parser.add_argument(
         "--model_type",

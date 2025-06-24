@@ -19,6 +19,7 @@ import datetime
 import pickle
 import numpy as np
 from tqdm import tqdm
+from itertools import combinations
 
 # Import the loss functions from the molecular_imbalanced_benchmark
 from loss import (
@@ -29,6 +30,27 @@ from loss import (
     InfluenceBalancedLoss,
     CDT,  
 )
+
+
+def concatenate_fingerprints(df, fps_types):
+    """
+    Concatenate multiple fingerprint types for a given dataframe.
+    
+    Args:
+        df: DataFrame containing the data
+        fps_types: List of fingerprint types to concatenate
+    
+    Returns:
+        Concatenated fingerprint features
+    """
+    concatenated_data = []
+    
+    for fps_type in fps_types:
+        data = ProcessData(df, fps_type).get_data()
+        concatenated_data.append(data)
+    
+    # Concatenate along feature axis (axis=1)
+    return np.concatenate(concatenated_data, axis=1)
 
 
 def create_weighted_sampler(labels, sampling_type="balanced"):
@@ -74,7 +96,7 @@ def get_loss_function(imbalanced, num_class_list, device):
                     "GAMMA": 1.0,
                 },
                 "InfluenceBalancedLoss": {
-                    "ALPHA": 1000.0,
+                    "ALPHA": 1.0,  # Reduced from 1000.0
                 },
                 "CDT": {
                     "GAMMA": 0.1,  # Adjusted for binary classification
@@ -107,464 +129,16 @@ def get_loss_function(imbalanced, num_class_list, device):
         raise ValueError(f"Unknown loss type: {imbalanced}")
 
 
-def train_model_decoupling(model, train_loader, val_loader, device, df_val, num_class_list, 
-                          epochs=100, lr=0.001, drw_start_epoch=80):
-    """Train model with Decoupling strategy (representation learning + classifier re-training)"""
-    
-    # Phase 1: Representation learning with weighted sampling
-    print("Phase 1: Representation learning with weighted sampling...")
-    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=10, verbose=True)
-    criterion = nn.CrossEntropyLoss()
-    
-    best_prauc = -1
-    best_model_features = None
-    patience_counter = 0
-    patience = 20
-    
-    # Create weighted sampler for representation learning
-    train_labels = []
-    for _, batch_y in train_loader:
-        train_labels.extend(batch_y.numpy())
-    train_labels = np.array(train_labels)
-    
-    weighted_sampler = create_weighted_sampler(train_labels, "balanced")
-    weighted_train_loader = DataLoader(
-        train_loader.dataset, 
-        batch_size=train_loader.batch_size, 
-        sampler=weighted_sampler
-    )
-    
-    representation_epochs = drw_start_epoch
-    epoch_pbar = tqdm(range(representation_epochs), desc="Representation Learning", unit="epoch")
-    
-    for epoch in epoch_pbar:
-        model.train()
-        train_loss = 0
-        
-        batch_pbar = tqdm(weighted_train_loader, desc=f"Epoch {epoch+1}/{representation_epochs}", leave=False, unit="batch")
-        
-        for batch_x, batch_y in batch_pbar:
-            batch_x, batch_y = batch_x.to(device), batch_y.to(device)
-            
-            optimizer.zero_grad()
-            outputs = model(batch_x)
-            loss = criterion(outputs, batch_y)
-            loss.backward()
-            optimizer.step()
-            train_loss += loss.item()
-            
-            batch_pbar.set_postfix({"Batch Loss": f"{loss.item():.4f}"})
-        
-        avg_train_loss = train_loss / len(weighted_train_loader)
-        
-        # Validation
-        model.eval()
-        val_probs = []
-        val_labels = []
-        
-        with torch.no_grad():
-            for batch_x, batch_y in val_loader:
-                batch_x, batch_y = batch_x.to(device), batch_y.to(device)
-                outputs = model(batch_x)
-                probs = torch.softmax(outputs, dim=1)[:, 1]
-                val_probs.extend(probs.cpu().numpy())
-                val_labels.extend(batch_y.cpu().numpy())
-        
-        val_auc = roc_auc_score(val_labels, val_probs)
-        val_prauc = average_precision_score(val_labels, val_probs)
-        
-        scheduler.step(val_prauc)
-        
-        if val_prauc > best_prauc:
-            best_prauc = val_prauc
-            best_model_features = model.state_dict().copy()
-            patience_counter = 0
-        else:
-            patience_counter += 1
-        
-        epoch_pbar.set_postfix({
-            "Train Loss": f"{avg_train_loss:.4f}",
-            "Val AUC": f"{val_auc:.4f}",
-            "Val PRAUC": f"{val_prauc:.4f}",
-            "Best PRAUC": f"{best_prauc:.4f}",
-            "Patience": f"{patience_counter}/{patience}"
-        })
-        
-        if patience_counter >= patience:
-            break
-    
-    epoch_pbar.close()
-    
-    # Load best representation
-    if best_model_features is not None:
-        model.load_state_dict(best_model_features)
-    
-    # Phase 2: Classifier re-training with balanced sampling
-    print("Phase 2: Classifier re-training with balanced sampling...")
-    
-    # Freeze feature layers (all except the last layer)
-    for name, param in model.named_parameters():
-        if 'model.6' not in name:  # Don't freeze the final linear layer
-            param.requires_grad = False
-    
-    # Re-initialize optimizer for only the classifier layer
-    trainable_params = [p for p in model.parameters() if p.requires_grad]
-    optimizer = optim.Adam(trainable_params, lr=lr*0.1, weight_decay=1e-4)  # Lower learning rate
-    
-    # Use balanced sampler for classifier re-training
-    balanced_sampler = create_weighted_sampler(train_labels, "balanced")
-    balanced_train_loader = DataLoader(
-        train_loader.dataset,
-        batch_size=train_loader.batch_size,
-        sampler=balanced_sampler
-    )
-    
-    classifier_epochs = epochs - drw_start_epoch
-    best_prauc_phase2 = -1
-    best_model_final = None
-    patience_counter = 0
-    
-    epoch_pbar = tqdm(range(classifier_epochs), desc="Classifier Re-training", unit="epoch")
-    
-    for epoch in epoch_pbar:
-        model.train()
-        train_loss = 0
-        
-        batch_pbar = tqdm(balanced_train_loader, desc=f"Epoch {epoch+1}/{classifier_epochs}", leave=False, unit="batch")
-        
-        for batch_x, batch_y in batch_pbar:
-            batch_x, batch_y = batch_x.to(device), batch_y.to(device)
-            
-            optimizer.zero_grad()
-            outputs = model(batch_x)
-            loss = criterion(outputs, batch_y)
-            loss.backward()
-            optimizer.step()
-            train_loss += loss.item()
-            
-            batch_pbar.set_postfix({"Batch Loss": f"{loss.item():.4f}"})
-        
-        avg_train_loss = train_loss / len(balanced_train_loader)
-        
-        # Validation
-        model.eval()
-        val_probs = []
-        val_labels = []
-        
-        with torch.no_grad():
-            for batch_x, batch_y in val_loader:
-                batch_x, batch_y = batch_x.to(device), batch_y.to(device)
-                outputs = model(batch_x)
-                probs = torch.softmax(outputs, dim=1)[:, 1]
-                val_probs.extend(probs.cpu().numpy())
-                val_labels.extend(batch_y.cpu().numpy())
-        
-        val_auc = roc_auc_score(val_labels, val_probs)
-        val_prauc = average_precision_score(val_labels, val_probs)
-        
-        if val_prauc > best_prauc_phase2:
-            best_prauc_phase2 = val_prauc
-            best_model_final = model.state_dict().copy()
-            patience_counter = 0
-        else:
-            patience_counter += 1
-        
-        epoch_pbar.set_postfix({
-            "Train Loss": f"{avg_train_loss:.4f}",
-            "Val AUC": f"{val_auc:.4f}",
-            "Val PRAUC": f"{val_prauc:.4f}",
-            "Best PRAUC": f"{best_prauc_phase2:.4f}",
-            "Patience": f"{patience_counter}/{patience}"
-        })
-        
-        if patience_counter >= patience:
-            break
-    
-    epoch_pbar.close()
-    
-    # Load best final model
-    if best_model_final is not None:
-        model.load_state_dict(best_model_final)
-        best_prauc = best_prauc_phase2
-    
-    return model, best_prauc
-
-
-def train_model_bbn(model, train_loader, val_loader, device, df_val, num_class_list, 
-                   epochs=100, lr=0.001):
-    """Train BBN model with bilateral branches (without mixup)"""
-    
-    # Create different samplers
-    train_labels = []
-    for _, batch_y in train_loader:
-        train_labels.extend(batch_y.numpy())
-    train_labels = np.array(train_labels)
-    
-    # Reverse sampler (for re-balancing branch) - emphasizes minority class
-    class_counts = np.bincount(train_labels)
-    # Reverse the frequency: give more weight to minority class
-    reverse_weights = class_counts.max() / class_counts
-    sample_weights = reverse_weights[train_labels]
-    reverse_sampler = WeightedRandomSampler(sample_weights, len(train_labels), replacement=True)
-    
-    reverse_train_loader = DataLoader(
-        train_loader.dataset,
-        batch_size=train_loader.batch_size,
-        sampler=reverse_sampler
-    )
-    
-    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=10, verbose=True)
-    criterion = nn.CrossEntropyLoss()
-    
-    best_prauc = -1
-    best_model_state = None
-    patience_counter = 0
-    patience = 20
-    
-    epoch_pbar = tqdm(range(epochs), desc="BBN Training", unit="epoch")
-    
-    for epoch in epoch_pbar:
-        model.train()
-        train_loss = 0
-        batch_count = 0
-        
-        # Create iterators for both samplers
-        uniform_iter = iter(train_loader)
-        reverse_iter = iter(reverse_train_loader)
-        
-        # Train with both samplers
-        max_batches = min(len(train_loader), len(reverse_train_loader))
-        
-        batch_pbar = tqdm(range(max_batches), desc=f"Epoch {epoch+1}/{epochs}", leave=False, unit="batch")
-        
-        for batch_idx in batch_pbar:
-            try:
-                # Get batch from uniform sampler (conventional branch)
-                batch_x_uniform, batch_y_uniform = next(uniform_iter)
-                batch_x_uniform, batch_y_uniform = batch_x_uniform.to(device), batch_y_uniform.to(device)
-                
-                # Get batch from reverse sampler (re-balancing branch)
-                batch_x_reverse, batch_y_reverse = next(reverse_iter)
-                batch_x_reverse, batch_y_reverse = batch_x_reverse.to(device), batch_y_reverse.to(device)
-                
-            except StopIteration:
-                break
-            
-            optimizer.zero_grad()
-            
-            # Train both branches separately (no mixup)
-            # Forward pass for conventional branch with uniform sampling
-            conv_output = model(batch_x_uniform, branch="conv")
-            # Handle case where model returns tuple
-            if isinstance(conv_output, tuple):
-                conv_output = conv_output[0]
-            conv_loss = criterion(conv_output, batch_y_uniform)
-            
-            # Forward pass for re-balancing branch with reverse sampling
-            rebal_output = model(batch_x_reverse, branch="rebal")
-            # Handle case where model returns tuple
-            if isinstance(rebal_output, tuple):
-                rebal_output = rebal_output[0]
-            rebal_loss = criterion(rebal_output, batch_y_reverse)
-            
-            # Combine losses (equal weighting)
-            total_loss = 0.5 * conv_loss + 0.5 * rebal_loss
-            
-            total_loss.backward()
-            optimizer.step()
-            train_loss += total_loss.item()
-            batch_count += 1
-            
-            batch_pbar.set_postfix({"Batch Loss": f"{total_loss.item():.4f}"})
-        
-        avg_train_loss = train_loss / batch_count if batch_count > 0 else 0
-        
-        # Validation (use ensemble of both branches)
-        model.eval()
-        val_probs = []
-        val_labels = []
-        
-        with torch.no_grad():
-            for batch_x, batch_y in val_loader:
-                batch_x, batch_y = batch_x.to(device), batch_y.to(device)
-                
-                # Get outputs from both branches
-                model_output = model(batch_x, branch="both")
-                if isinstance(model_output, tuple) and len(model_output) == 2:
-                    conv_output, rebal_output = model_output
-                else:
-                    # Fallback: get outputs separately
-                    conv_output = model(batch_x, branch="conv")
-                    rebal_output = model(batch_x, branch="rebal")
-                    if isinstance(conv_output, tuple):
-                        conv_output = conv_output[0]
-                    if isinstance(rebal_output, tuple):
-                        rebal_output = rebal_output[0]
-                
-                # Ensemble prediction
-                conv_probs = torch.softmax(conv_output, dim=1)[:, 1]
-                rebal_probs = torch.softmax(rebal_output, dim=1)[:, 1]
-                ensemble_probs = 0.5 * conv_probs + 0.5 * rebal_probs
-                
-                val_probs.extend(ensemble_probs.cpu().numpy())
-                val_labels.extend(batch_y.cpu().numpy())
-        
-        val_auc = roc_auc_score(val_labels, val_probs)
-        val_prauc = average_precision_score(val_labels, val_probs)
-        
-        scheduler.step(val_prauc)
-        
-        if val_prauc > best_prauc:
-            best_prauc = val_prauc
-            best_model_state = model.state_dict().copy()
-            patience_counter = 0
-        else:
-            patience_counter += 1
-        
-        epoch_pbar.set_postfix({
-            "Train Loss": f"{avg_train_loss:.4f}",
-            "Val AUC": f"{val_auc:.4f}",
-            "Val PRAUC": f"{val_prauc:.4f}",
-            "Best PRAUC": f"{best_prauc:.4f}",
-            "Patience": f"{patience_counter}/{patience}"
-        })
-        
-        if patience_counter >= patience:
-            epoch_pbar.set_description(f"Early stopping at epoch {epoch+1}")
-            break
-    
-    epoch_pbar.close()
-    
-    if best_model_state is not None:
-        model.load_state_dict(best_model_state)
-    else:
-        print("Warning: No improvement found during training, keeping final model state")
-        best_prauc = val_prauc
-    
-    return model, best_prauc
-
-
-def train_model(model, train_loader, val_loader, loss_fn, device, df_val, method_type="CE", 
-                num_class_list=None, epochs=100, lr=0.001):
-    """Train the MLP model with the specified method"""
-    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=10, verbose=True)
-    
-    best_prauc = -1
-    best_model_state = None
-    patience_counter = 0
-    patience = 20
-    
-    # Mixup/Remix parameters
-    mixup_alpha = 1.0
-    remix_kappa = 3.0
-    remix_tau = 0.5
-    
-    epoch_pbar = tqdm(range(epochs), desc="Training", unit="epoch")
-    
-    for epoch in epoch_pbar:
-        model.train()
-        train_loss = 0
-        
-        # Update loss function for epoch-dependent methods
-        if hasattr(loss_fn, 'update'):
-            loss_fn.update(epoch + 1)
-        
-        batch_pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}", leave=False, unit="batch")
-        
-        for batch_x, batch_y in batch_pbar:
-            batch_x, batch_y = batch_x.to(device), batch_y.to(device)
-            
-            optimizer.zero_grad()
-            
-            if method_type == "MIXUP":
-                # Apply mixup
-                mixed_x, y_a, y_b, lam = mixup_data(batch_x, batch_y, mixup_alpha, device)
-                outputs = model(mixed_x)
-                loss = mixup_criterion(loss_fn, outputs, y_a, y_b, lam)
-                
-            elif method_type == "REMIX":
-                # Apply remix
-                mixed_x, y_a, y_b, lam = remix_data(
-                    batch_x, batch_y, mixup_alpha, remix_kappa, remix_tau, num_class_list, device
-                )
-                outputs = model(mixed_x)
-                loss = mixup_criterion(loss_fn, outputs, y_a, y_b, lam)
-                
-            else:
-                # Standard training or other loss-based methods
-                outputs = model(batch_x)
-                
-                if isinstance(loss_fn, InfluenceBalancedLoss):
-                    features = model.forward_features(batch_x)
-                    loss = loss_fn(outputs, batch_y, feature=features)
-                else:
-                    loss = loss_fn(outputs, batch_y)
-            
-            loss.backward()
-            optimizer.step()
-            train_loss += loss.item()
-            
-            batch_pbar.set_postfix({"Batch Loss": f"{loss.item():.4f}"})
-        
-        avg_train_loss = train_loss / len(train_loader)
-        
-        # Validation phase (always standard evaluation)
-        model.eval()
-        val_probs = []
-        val_labels = []
-        
-        with torch.no_grad():
-            for batch_x, batch_y in val_loader:
-                batch_x, batch_y = batch_x.to(device), batch_y.to(device)
-                outputs = model(batch_x)
-                probs = torch.softmax(outputs, dim=1)[:, 1]
-                val_probs.extend(probs.cpu().numpy())
-                val_labels.extend(batch_y.cpu().numpy())
-        
-        val_auc = roc_auc_score(val_labels, val_probs)
-        val_prauc = average_precision_score(val_labels, val_probs)
-        
-        scheduler.step(val_prauc)
-        
-        if val_prauc > best_prauc:
-            best_prauc = val_prauc
-            best_model_state = model.state_dict().copy()
-            patience_counter = 0
-        else:
-            patience_counter += 1
-        
-        epoch_pbar.set_postfix({
-            "Train Loss": f"{avg_train_loss:.4f}",
-            "Val AUC": f"{val_auc:.4f}",
-            "Val PRAUC": f"{val_prauc:.4f}",
-            "Best PRAUC": f"{best_prauc:.4f}",
-            "Patience": f"{patience_counter}/{patience}"
-        })
-        
-        if patience_counter >= patience:
-            epoch_pbar.set_description(f"Early stopping at epoch {epoch+1}")
-            break
-    
-    epoch_pbar.close()
-    
-    if best_model_state is not None:
-        model.load_state_dict(best_model_state)
-    else:
-        print("Warning: No improvement found during training, keeping final model state")
-        best_prauc = val_prauc
-    
-    return model, best_prauc
-
-
 def update_results_csv(parent_dir, model_type, fps_type, prauc, roc_auc, metric,
                        hits_50=None, clusters_50=None, cluster_prauc_50=None,
                        hits_200=None, clusters_200=None, cluster_prauc_200=None,
                        hits_500=None, clusters_500=None, cluster_prauc_500=None):
     """Update the results CSV file with enhanced metrics"""
-    results_file = os.path.join(parent_dir, "model_results.csv")
+    # Use combination-specific CSV file name
+    if "," in fps_type:
+        results_file = os.path.join(parent_dir, "combination_model_results.csv")
+    else:
+        results_file = os.path.join(parent_dir, "model_results.csv")
 
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     new_data = {
@@ -644,13 +218,531 @@ def calculate_cluster_metrics(df_val, probabilities, top_n):
     return n_hits, clusters, cluster_prauc
 
 
+def get_adaptive_hidden_dims(input_dim, base_factor=0.5, min_hidden=128, max_hidden=1024):
+    """
+    Calculate adaptive hidden dimensions based on input dimension
+    
+    Fingerprint dimensions:
+    - MACCS: 167 bits
+    - RDK: 2048 bits  
+    - AVALON: 2048 bits
+    - ATOMPAIR: 2048 bits
+    
+    Args:
+        input_dim: Input feature dimension
+        base_factor: Factor to scale first hidden layer (0.5 means half of input_dim)
+        min_hidden: Minimum hidden dimension
+        max_hidden: Maximum hidden dimension per layer
+    
+    Returns:
+        List of hidden dimensions
+    """
+    # First layer: proportional to input but within bounds
+    first_hidden = max(min_hidden, min(int(input_dim * base_factor), max_hidden))
+    
+    # Second layer: 3/4 of first layer
+    second_hidden = max(min_hidden, int(first_hidden * 0.75))
+    
+    # Third layer: 1/2 of first layer  
+    third_hidden = max(min_hidden, int(first_hidden * 0.5))
+    
+    return [first_hidden, second_hidden, third_hidden]
+
+
+def train_model(model, train_loader, val_loader, loss_fn, device, df_val, 
+                method_type="CE", num_class_list=None, epochs=200, lr=0.001):
+    """
+    Standard training loop for most imbalanced learning methods
+    """
+    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.5)
+    
+    best_val_prauc = 0.0
+    best_model_state = None
+    patience = 30
+    patience_counter = 0
+    
+    for epoch in range(epochs):
+        # Training phase
+        model.train()
+        train_loss = 0.0
+        num_batches = 0
+        
+        # Update loss function if it has update method (for methods like Decoupling)
+        if hasattr(loss_fn, 'update'):
+            loss_fn.update(epoch + 1)
+        
+        for batch_idx, (data, target) in enumerate(train_loader):
+            data, target = data.to(device), target.to(device)
+            optimizer.zero_grad()
+            
+            if method_type == "MIXUP":
+                # Mixup data augmentation
+                data, targets_a, targets_b, lam = mixup_data(data, target, alpha=1.0)
+                outputs = model(data)
+                loss = mixup_criterion(loss_fn, outputs, targets_a, targets_b, lam)
+            elif method_type == "REMIX":
+                # Remix augmentation
+                data, targets_a, targets_b, lam = remix_data(data, target, alpha=1.0, kappa=3.0)
+                outputs = model(data)
+                # For REMIX, we need to handle the loss differently
+                loss_a = loss_fn(outputs, targets_a)
+                loss_b = loss_fn(outputs, targets_b)
+                loss = lam * loss_a.mean() + (1 - lam) * loss_b.mean()
+            elif method_type == "IB":
+                # Influence-balanced loss needs features
+                features = model.get_features(data) if hasattr(model, 'get_features') else data
+                outputs = model(data)
+                loss = loss_fn(outputs, target, feature=features)
+            else:
+                # Standard forward pass
+                outputs = model(data)
+                if hasattr(loss_fn, 'forward'):
+                    loss = loss_fn(outputs, target)
+                else:
+                    loss = loss_fn(outputs, target)
+            
+            loss.backward()
+            optimizer.step()
+            
+            train_loss += loss.item()
+            num_batches += 1
+        
+        scheduler.step()
+        avg_train_loss = train_loss / num_batches
+        
+        # Validation phase
+        model.eval()
+        val_probabilities = []
+        val_labels = []
+        
+        with torch.no_grad():
+            for data, target in val_loader:
+                data = data.to(device)
+                outputs = model(data)
+                probs = torch.softmax(outputs, dim=1)[:, 1]
+                val_probabilities.extend(probs.cpu().numpy())
+                val_labels.extend(target.numpy())
+        
+        val_probabilities = np.array(val_probabilities)
+        val_labels = np.array(val_labels)
+        
+        # Calculate validation metrics
+        val_prauc = average_precision_score(val_labels, val_probabilities)
+        val_roc_auc = roc_auc_score(val_labels, val_probabilities)
+        
+        print(f"Epoch {epoch+1}/{epochs}, Train Loss: {avg_train_loss:.4f}, "
+              f"Val PRAUC: {val_prauc:.4f}, Val ROC-AUC: {val_roc_auc:.4f}")
+        
+        # Early stopping and best model tracking
+        if val_prauc > best_val_prauc:
+            best_val_prauc = val_prauc
+            best_model_state = model.state_dict().copy()
+            patience_counter = 0
+        else:
+            patience_counter += 1
+            
+        if patience_counter >= patience:
+            print(f"Early stopping at epoch {epoch+1}")
+            break
+    
+    # Load best model
+    if best_model_state is not None:
+        model.load_state_dict(best_model_state)
+    
+    return model, best_val_prauc
+
+
+def train_model_decoupling(model, train_loader, val_loader, device, df_val, num_class_list,
+                          epochs=200, lr=0.001, drw_start_epoch=100):
+    """
+    Two-stage training for Decoupling method
+    """
+    # Stage 1: Standard training
+    print("Stage 1: Training representation...")
+    loss_fn = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
+    
+    best_val_prauc = 0.0
+    best_model_state = None
+    
+    for epoch in range(drw_start_epoch):
+        model.train()
+        train_loss = 0.0
+        
+        for data, target in train_loader:
+            data, target = data.to(device), target.to(device)
+            optimizer.zero_grad()
+            
+            outputs = model(data)
+            loss = loss_fn(outputs, target)
+            
+            loss.backward()
+            optimizer.step()
+            train_loss += loss.item()
+        
+        # Validation
+        model.eval()
+        val_probabilities = []
+        val_labels = []
+        
+        with torch.no_grad():
+            for data, target in val_loader:
+                data = data.to(device)
+                outputs = model(data)
+                probs = torch.softmax(outputs, dim=1)[:, 1]
+                val_probabilities.extend(probs.cpu().numpy())
+                val_labels.extend(target.numpy())
+        
+        val_prauc = average_precision_score(val_labels, val_probabilities)
+        
+        if val_prauc > best_val_prauc:
+            best_val_prauc = val_prauc
+            best_model_state = model.state_dict().copy()
+        
+        if epoch % 20 == 0:
+            print(f"Stage 1 - Epoch {epoch+1}/{drw_start_epoch}, "
+                  f"Loss: {train_loss/len(train_loader):.4f}, Val PRAUC: {val_prauc:.4f}")
+    
+    # Load best model from stage 1
+    if best_model_state is not None:
+        model.load_state_dict(best_model_state)
+    
+    # Stage 2: Re-weight training
+    print("Stage 2: Re-weighted training...")
+    
+    # Create weighted sampler for stage 2
+    train_labels = []
+    for _, target in train_loader:
+        train_labels.extend(target.numpy())
+    train_labels = np.array(train_labels)
+    
+    weighted_sampler = create_weighted_sampler(train_labels, "balanced")
+    
+    # Recreate train dataset and loader for stage 2
+    train_dataset = train_loader.dataset
+    weighted_train_loader = DataLoader(
+        train_dataset, batch_size=train_loader.batch_size, 
+        sampler=weighted_sampler
+    )
+    
+    # Continue training with reweighting
+    optimizer = optim.Adam(model.parameters(), lr=lr*0.1, weight_decay=1e-4)  # Lower LR
+    
+    for epoch in range(epochs - drw_start_epoch):
+        model.train()
+        train_loss = 0.0
+        
+        for data, target in weighted_train_loader:
+            data, target = data.to(device), target.to(device)
+            optimizer.zero_grad()
+            
+            outputs = model(data)
+            loss = loss_fn(outputs, target)
+            
+            loss.backward()
+            optimizer.step()
+            train_loss += loss.item()
+        
+        # Validation
+        model.eval()
+        val_probabilities = []
+        val_labels = []
+        
+        with torch.no_grad():
+            for data, target in val_loader:
+                data = data.to(device)
+                outputs = model(data)
+                probs = torch.softmax(outputs, dim=1)[:, 1]
+                val_probabilities.extend(probs.cpu().numpy())
+                val_labels.extend(target.numpy())
+        
+        val_prauc = average_precision_score(val_labels, val_probabilities)
+        
+        if val_prauc > best_val_prauc:
+            best_val_prauc = val_prauc
+            best_model_state = model.state_dict().copy()
+        
+        if epoch % 10 == 0:
+            print(f"Stage 2 - Epoch {epoch+1}/{epochs-drw_start_epoch}, "
+                  f"Loss: {train_loss/len(weighted_train_loader):.4f}, Val PRAUC: {val_prauc:.4f}")
+    
+    # Load best model
+    if best_model_state is not None:
+        model.load_state_dict(best_model_state)
+    
+    return model, best_val_prauc
+
+
+def train_model_bbn(model, train_loader, val_loader, device, df_val, num_class_list,
+                   epochs=200, lr=0.001):
+    """
+    Training function for BBN (Bilateral-Branch Network)
+    """
+    optimizer = optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.1)
+    
+    best_val_prauc = 0.0
+    best_model_state = None
+    patience = 30
+    patience_counter = 0
+    
+    for epoch in range(epochs):
+        model.train()
+        train_loss = 0.0
+        num_batches = 0
+        
+        for data, target in train_loader:
+            data, target = data.to(device), target.to(device)
+            optimizer.zero_grad()
+            
+            # BBN forward pass returns tuple of (conv_out, rebal_out)
+            conv_out, rebal_out = model(data, branch="both")
+            
+            # Calculate losses for both branches
+            conv_loss = nn.CrossEntropyLoss()(conv_out, target)
+            rebal_loss = nn.CrossEntropyLoss()(rebal_out, target)
+            
+            # Combined loss
+            total_loss = conv_loss + rebal_loss
+            
+            total_loss.backward()
+            optimizer.step()
+            
+            train_loss += total_loss.item()
+            num_batches += 1
+        
+        scheduler.step()
+        avg_train_loss = train_loss / num_batches
+        
+        # Validation
+        model.eval()
+        val_probabilities = []
+        val_labels = []
+        
+        with torch.no_grad():
+            for data, target in val_loader:
+                data = data.to(device)
+                
+                # Get ensemble prediction
+                conv_out, rebal_out = model(data, branch="both")
+                conv_probs = torch.softmax(conv_out, dim=1)[:, 1]
+                rebal_probs = torch.softmax(rebal_out, dim=1)[:, 1]
+                
+                # Ensemble probabilities
+                ensemble_probs = 0.5 * conv_probs + 0.5 * rebal_probs
+                
+                val_probabilities.extend(ensemble_probs.cpu().numpy())
+                val_labels.extend(target.numpy())
+        
+        val_probabilities = np.array(val_probabilities)
+        val_labels = np.array(val_labels)
+        
+        val_prauc = average_precision_score(val_labels, val_probabilities)
+        val_roc_auc = roc_auc_score(val_labels, val_probabilities)
+        
+        print(f"Epoch {epoch+1}/{epochs}, Train Loss: {avg_train_loss:.4f}, "
+              f"Val PRAUC: {val_prauc:.4f}, Val ROC-AUC: {val_roc_auc:.4f}")
+        
+        # Early stopping
+        if val_prauc > best_val_prauc:
+            best_val_prauc = val_prauc
+            best_model_state = model.state_dict().copy()
+            patience_counter = 0
+        else:
+            patience_counter += 1
+            
+        if patience_counter >= patience:
+            print(f"Early stopping at epoch {epoch+1}")
+            break
+    
+    # Load best model
+    if best_model_state is not None:
+        model.load_state_dict(best_model_state)
+    
+    return model, best_val_prauc
+
+
+def train_and_evaluate_combination(fps_combination, df_train, df_val, args, parent_dir):
+    """Train and evaluate a single fingerprint combination."""
+    print(f"\n{'='*60}")
+    print(f"Evaluating combination: {','.join(fps_combination)} with {args.imbalanced}")
+    print(f"{'='*60}")
+    
+    # Create combination string for file naming
+    combo_str = "_".join(fps_combination)
+    
+    # Create log directory for this combination
+    combo_log_dir = os.path.join(args.log_dir, f"combo_{combo_str}_{args.imbalanced}")
+    os.makedirs(combo_log_dir, exist_ok=True)
+    
+    try:
+        # Process data with concatenated fingerprints
+        print("Processing fingerprints...")
+        TrainData = concatenate_fingerprints(df_train, fps_combination)
+        ValData = concatenate_fingerprints(df_val, fps_combination)
+        TrainLabel = df_train["LABEL"].values
+        DevLabel = df_val["LABEL"].values
+        
+        print(f"Training data shape: {TrainData.shape}")
+        print(f"Validation data shape: {ValData.shape}")
+        
+        # Calculate class distribution for loss function initialization
+        num_class_list = [np.sum(TrainLabel == 0), np.sum(TrainLabel == 1)]
+        print(f"Class distribution: {num_class_list}")
+
+        # Convert to PyTorch tensors
+        X_train = torch.FloatTensor(TrainData)
+        y_train = torch.LongTensor(TrainLabel)
+        X_val = torch.FloatTensor(ValData)
+        y_val = torch.LongTensor(DevLabel)
+
+        # Create data loaders
+        train_dataset = TensorDataset(X_train, y_train)
+        val_dataset = TensorDataset(X_val, y_val)
+        train_loader = DataLoader(train_dataset, batch_size=256, shuffle=True)
+        val_loader = DataLoader(val_dataset, batch_size=256, shuffle=False)
+
+        # Initialize model based on method with adaptive hidden dimensions
+        input_dim = TrainData.shape[1]
+        hidden_dims = get_adaptive_hidden_dims(input_dim)
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        
+        print(f"Input dimension: {input_dim}")
+        print(f"Adaptive hidden dimensions: {hidden_dims}")
+        
+        if args.imbalanced == "BBN":
+            model = BBNModel(input_dim=input_dim, hidden_dims=hidden_dims, dropout=0.3, num_classes=2).to(device)
+        else:
+            model = MLP(input_dim=input_dim, hidden_dims=hidden_dims, dropout=0.3).to(device)
+
+        print(f"Training with {args.imbalanced} method...")
+        
+        # Train model based on method
+        if args.imbalanced == "DECOUPLING":
+            model, best_val_prauc = train_model_decoupling(
+                model, train_loader, val_loader, device, df_val, num_class_list,
+                epochs=200, lr=0.001, drw_start_epoch=100
+            )
+        elif args.imbalanced == "BBN":
+            model, best_val_prauc = train_model_bbn(
+                model, train_loader, val_loader, device, df_val, num_class_list,
+                epochs=200, lr=0.001
+            )
+        else:
+            # All other methods use the standard training loop
+            loss_fn = get_loss_function(args.imbalanced, num_class_list, device)
+            model, best_val_prauc = train_model(
+                model, train_loader, val_loader, loss_fn, device, df_val,
+                method_type=args.imbalanced, num_class_list=num_class_list,
+                epochs=200, lr=0.001
+            )
+
+        # Save the model
+        best_model_path = os.path.join(combo_log_dir, "best_model.pth")
+        model_config = {
+            'input_dim': input_dim,
+            'hidden_dims': hidden_dims,  # Save adaptive dimensions
+            'dropout': 0.3
+        }
+        if args.imbalanced == "BBN":
+            model_config['num_classes'] = 2
+            
+        torch.save({
+            'model_state_dict': model.state_dict(),
+            'model_config': model_config,
+            'imbalanced_method': args.imbalanced,
+            'fps_combination': fps_combination,
+            'model_type': 'BBN' if args.imbalanced == "BBN" else 'MLP'
+        }, best_model_path)
+
+        # Final evaluation
+        model.eval()
+        with torch.no_grad():
+            X_val_device = X_val.to(device)
+            
+            if args.imbalanced == "BBN":
+                # Use ensemble prediction for BBN
+                model_output = model(X_val_device, branch="both")
+                if isinstance(model_output, tuple) and len(model_output) == 2:
+                    conv_output, rebal_output = model_output
+                else:
+                    # Fallback: get outputs separately
+                    conv_output = model(X_val_device, branch="conv")
+                    rebal_output = model(X_val_device, branch="rebal")
+                    if isinstance(conv_output, tuple):
+                        conv_output = conv_output[0]
+                    if isinstance(rebal_output, tuple):
+                        rebal_output = rebal_output[0]
+                
+                conv_probs = torch.softmax(conv_output, dim=1)[:, 1]
+                rebal_probs = torch.softmax(rebal_output, dim=1)[:, 1]
+                probabilities = (0.5 * conv_probs + 0.5 * rebal_probs).cpu().numpy()
+                predictions = (probabilities > 0.5).astype(int)
+            else:
+                outputs = model(X_val_device)
+                probabilities = torch.softmax(outputs, dim=1)[:, 1].cpu().numpy()
+                predictions = torch.argmax(outputs, dim=1).cpu().numpy()
+
+        # Calculate metrics
+        prauc = average_precision_score(DevLabel, probabilities)
+        roc_auc = roc_auc_score(DevLabel, probabilities)
+        
+        print(f"Final PRAUC on validation set: {prauc:.4f}")
+        print(f"Final ROC-AUC on validation set: {roc_auc:.4f}")
+
+        # Calculate cluster-based metrics
+        n_hits_50, clusters_50, cluster_prauc_50 = calculate_cluster_metrics(df_val, probabilities, 50)
+        n_hits_200, clusters_200, cluster_prauc_200 = calculate_cluster_metrics(df_val, probabilities, 200)
+        n_hits_500, clusters_500, cluster_prauc_500 = calculate_cluster_metrics(df_val, probabilities, 500)
+        
+        all_clusters = df_val[df_val["LABEL"] == 1].drop_duplicates("CLUSTER_LABEL").shape[0]
+        print(f"All positive clusters in validation set: {all_clusters}")
+        print(f"Top 50 selection - Hits: {n_hits_50}, Unique clusters: {clusters_50}, Cluster PRAUC: {cluster_prauc_50:.4f}")
+        print(f"Top 200 selection - Hits: {n_hits_200}, Unique clusters: {clusters_200}, Cluster PRAUC: {cluster_prauc_200:.4f}")
+        print(f"Top 500 selection - Hits: {n_hits_500}, Unique clusters: {clusters_500}, Cluster PRAUC: {cluster_prauc_500:.4f}")
+
+        # Update results CSV
+        combo_name = ",".join(fps_combination)
+        model_name = f"BBN_{args.imbalanced}" if args.imbalanced == "BBN" else f"MLP_{args.imbalanced}"
+        update_results_csv(
+            parent_dir, model_name, combo_name, prauc, roc_auc, args.imbalanced,
+            n_hits_50, clusters_50, cluster_prauc_50,
+            n_hits_200, clusters_200, cluster_prauc_200,
+            n_hits_500, clusters_500, cluster_prauc_500
+        )
+
+        # Save predictions
+        df_predictions_val = pd.DataFrame({
+            "SMILES": df_val["SMILES"],
+            "PredictedScore": probabilities,
+            "PredictedLabel": predictions,
+        })
+        predictions_path = os.path.join(combo_log_dir, "val_predictions.csv")
+        df_predictions_val.to_csv(predictions_path, index=False)
+        print(f"Predictions saved to {predictions_path}")
+        
+        return {
+            'combination': combo_name,
+            'prauc': prauc,
+            'roc_auc': roc_auc,
+            'hits_50': n_hits_50,
+            'clusters_50': clusters_50,
+            'cluster_prauc_50': cluster_prauc_50
+        }
+        
+    except Exception as e:
+        print(f"Error processing combination {','.join(fps_combination)}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
 def main(args):
     # Setup
     os.makedirs(args.log_dir, exist_ok=True)
     parent_dir = os.path.dirname(os.path.abspath(args.log_dir))
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"Using device: {device}")
-
+    
     # Load datasets
     df_train = Dataset("../datasets/DREAM/Train_Dataset_DREAM.parquet").get_dataframe()
     df_val = Dataset("../datasets/DREAM/Val_Dataset_DREAM_Step2.csv").get_dataframe()
@@ -662,148 +754,183 @@ def main(args):
     print("Number of binders in the validation set:", (df_val["LABEL"] == 1).sum())
     print("Number of non-binders in the validation set:", (df_val["LABEL"] == 0).sum())
     print("------------------------------------------------------------")
-
-    # Process data
-    selected_fps = args.fps_type
-    if selected_fps not in ["MACCS", "RDK", "AVALON", "ATOMPAIR"]:
-        raise ValueError(f"Unsupported fingerprint type: {selected_fps}")
-
-    TrainData = ProcessData(df_train, selected_fps).get_data()
-    ValData = ProcessData(df_val, selected_fps).get_data()
-    TrainLabel = df_train["LABEL"].values
-    DevLabel = df_val["LABEL"].values
     
-    print("TrainData shape:", TrainData.shape)
-    print("ValData shape:", ValData.shape)
-
-    # Calculate class distribution for loss function initialization
-    num_class_list = [np.sum(TrainLabel == 0), np.sum(TrainLabel == 1)]
-    print(f"Class distribution: {num_class_list}")
-
-    # Convert to PyTorch tensors
-    X_train = torch.FloatTensor(TrainData)
-    y_train = torch.LongTensor(TrainLabel)
-    X_val = torch.FloatTensor(ValData)
-    y_val = torch.LongTensor(DevLabel)
-
-    # Create data loaders
-    train_dataset = TensorDataset(X_train, y_train)
-    val_dataset = TensorDataset(X_val, y_val)
-    train_loader = DataLoader(train_dataset, batch_size=256, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=256, shuffle=False)
-
-    # Initialize model based on method
-    input_dim = TrainData.shape[1]
-    
-    if args.imbalanced == "BBN":
-        model = BBNModel(input_dim=input_dim, hidden_dims=[256, 256, 256], dropout=0.3, num_classes=2).to(device)
-    else:
-        model = MLP(input_dim=input_dim, hidden_dims=[256, 256, 256], dropout=0.3).to(device)
-
-    print(f"Training with {args.imbalanced} method...")
-    
-    # Train model based on method
-    if args.imbalanced == "DECOUPLING":
-        model, best_val_prauc = train_model_decoupling(
-            model, train_loader, val_loader, device, df_val, num_class_list,
-            epochs=200, lr=0.001, drw_start_epoch=100
-        )
-    elif args.imbalanced == "BBN":
-        model, best_val_prauc = train_model_bbn(
-            model, train_loader, val_loader, device, df_val, num_class_list,
-            epochs=200, lr=0.001
-        )
-    else:
-        # All other methods use the standard training loop
-        loss_fn = get_loss_function(args.imbalanced, num_class_list, device)
-        model, best_val_prauc = train_model(
-            model, train_loader, val_loader, loss_fn, device, df_val,
-            method_type=args.imbalanced, num_class_list=num_class_list,
-            epochs=200, lr=0.001
-        )
-
-    # Save the model
-    best_model_path = os.path.join(args.log_dir, "best_model.pth")
-    model_config = {
-        'input_dim': input_dim,
-        'hidden_dims': [256, 256, 256],
-        'dropout': 0.3
-    }
-    if args.imbalanced == "BBN":
-        model_config['num_classes'] = 2
+    # Check if this is a combination run
+    if "," in args.fps_type:
+        # This is a combination run - evaluate ONLY the exact combination specified
+        fps_types = [fp.strip() for fp in args.fps_type.split(',')]
         
-    torch.save({
-        'model_state_dict': model.state_dict(),
-        'model_config': model_config,
-        'imbalanced_method': args.imbalanced,
-        'fps_type': args.fps_type,
-        'model_type': 'BBN' if args.imbalanced == "BBN" else 'MLP'
-    }, best_model_path)
+        # Validate fingerprint types
+        valid_fps = ["MACCS", "RDK", "AVALON", "ATOMPAIR"]
+        for fp in fps_types:
+            if fp not in valid_fps:
+                raise ValueError(f"Unsupported fingerprint type: {fp}. Valid types: {valid_fps}")
+        
+        print(f"Evaluating exact fingerprint combination: {fps_types} with {args.imbalanced}")
+        
+        # Evaluate only the specified combination
+        result = train_and_evaluate_combination(tuple(fps_types), df_train, df_val, args, parent_dir)
+        
+        if result:
+            print(f"\n{'='*80}")
+            print(f"RESULT FOR FINGERPRINT COMBINATION: {result['combination']} WITH {args.imbalanced}")
+            print(f"{'='*80}")
+            print(f"PRAUC: {result['prauc']:.4f}")
+            print(f"ROC-AUC: {result['roc_auc']:.4f}")
+            print(f"Top 50 - Hits: {result['hits_50']}, Clusters: {result['clusters_50']}")
+        else:
+            print("Combination evaluation failed.")
+    
+    else:
+        # Single fingerprint type - use original logic
+        selected_fps = args.fps_type
+        if selected_fps not in ["MACCS", "RDK", "AVALON", "ATOMPAIR"]:
+            raise ValueError(f"Unsupported fingerprint type: {selected_fps}")
 
-    # Final evaluation
-    model.eval()
-    with torch.no_grad():
-        X_val_device = X_val.to(device)
+        print(f"Single fingerprint processing with {args.imbalanced}: {selected_fps}")
+        
+        # Process data
+        TrainData = ProcessData(df_train, selected_fps).get_data()
+        ValData = ProcessData(df_val, selected_fps).get_data()
+        TrainLabel = df_train["LABEL"].values
+        DevLabel = df_val["LABEL"].values
+        
+        print("TrainData shape:", TrainData.shape)
+        print("ValData shape:", ValData.shape)
+
+        # Calculate class distribution for loss function initialization
+        num_class_list = [np.sum(TrainLabel == 0), np.sum(TrainLabel == 1)]
+        print(f"Class distribution: {num_class_list}")
+
+        # Convert to PyTorch tensors
+        X_train = torch.FloatTensor(TrainData)
+        y_train = torch.LongTensor(TrainLabel)
+        X_val = torch.FloatTensor(ValData)
+        y_val = torch.LongTensor(DevLabel)
+
+        # Create data loaders
+        train_dataset = TensorDataset(X_train, y_train)
+        val_dataset = TensorDataset(X_val, y_val)
+        train_loader = DataLoader(train_dataset, batch_size=256, shuffle=True)
+        val_loader = DataLoader(val_dataset, batch_size=256, shuffle=False)
+
+        # Initialize model based on method with adaptive hidden dimensions
+        input_dim = TrainData.shape[1]
+        hidden_dims = get_adaptive_hidden_dims(input_dim)
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        
+        print(f"Input dimension: {input_dim}")
+        print(f"Adaptive hidden dimensions: {hidden_dims}")
         
         if args.imbalanced == "BBN":
-            # Use ensemble prediction for BBN
-            model_output = model(X_val_device, branch="both")
-            if isinstance(model_output, tuple) and len(model_output) == 2:
-                conv_output, rebal_output = model_output
-            else:
-                # Fallback: get outputs separately
-                conv_output = model(X_val_device, branch="conv")
-                rebal_output = model(X_val_device, branch="rebal")
-                if isinstance(conv_output, tuple):
-                    conv_output = conv_output[0]
-                if isinstance(rebal_output, tuple):
-                    rebal_output = rebal_output[0]
-            
-            conv_probs = torch.softmax(conv_output, dim=1)[:, 1]
-            rebal_probs = torch.softmax(rebal_output, dim=1)[:, 1]
-            probabilities = (0.5 * conv_probs + 0.5 * rebal_probs).cpu().numpy()
-            predictions = (probabilities > 0.5).astype(int)
+            model = BBNModel(input_dim=input_dim, hidden_dims=hidden_dims, dropout=0.3, num_classes=2).to(device)
         else:
-            outputs = model(X_val_device)
-            probabilities = torch.softmax(outputs, dim=1)[:, 1].cpu().numpy()
-            predictions = torch.argmax(outputs, dim=1).cpu().numpy()
+            model = MLP(input_dim=input_dim, hidden_dims=hidden_dims, dropout=0.3).to(device)
 
-    # Calculate metrics
-    prauc = average_precision_score(DevLabel, probabilities)
-    roc_auc = roc_auc_score(DevLabel, probabilities)
-    
-    print(f"Final PRAUC on validation set: {prauc:.4f}")
-    print(f"Final ROC-AUC on validation set: {roc_auc:.4f}")
+        print(f"Training with {args.imbalanced} method...")
+        
+        # Train model based on method
+        if args.imbalanced == "DECOUPLING":
+            model, best_val_prauc = train_model_decoupling(
+                model, train_loader, val_loader, device, df_val, num_class_list,
+                epochs=200, lr=0.001, drw_start_epoch=100
+            )
+        elif args.imbalanced == "BBN":
+            model, best_val_prauc = train_model_bbn(
+                model, train_loader, val_loader, device, df_val, num_class_list,
+                epochs=200, lr=0.001
+            )
+        else:
+            # All other methods use the standard training loop
+            loss_fn = get_loss_function(args.imbalanced, num_class_list, device)
+            model, best_val_prauc = train_model(
+                model, train_loader, val_loader, loss_fn, device, df_val,
+                method_type=args.imbalanced, num_class_list=num_class_list,
+                epochs=200, lr=0.001
+            )
 
-    # Calculate cluster-based metrics
-    n_hits_50, clusters_50, cluster_prauc_50 = calculate_cluster_metrics(df_val, probabilities, 50)
-    n_hits_200, clusters_200, cluster_prauc_200 = calculate_cluster_metrics(df_val, probabilities, 200)
-    n_hits_500, clusters_500, cluster_prauc_500 = calculate_cluster_metrics(df_val, probabilities, 500)
-    
-    all_clusters = df_val[df_val["LABEL"] == 1].drop_duplicates("CLUSTER_LABEL").shape[0]
-    print(f"All positive clusters in validation set: {all_clusters}")
-    print(f"Top 50 selection - Hits: {n_hits_50}, Unique clusters: {clusters_50}, Cluster PRAUC: {cluster_prauc_50:.4f}")
-    print(f"Top 200 selection - Hits: {n_hits_200}, Unique clusters: {clusters_200}, Cluster PRAUC: {cluster_prauc_200:.4f}")
-    print(f"Top 500 selection - Hits: {n_hits_500}, Unique clusters: {clusters_500}, Cluster PRAUC: {cluster_prauc_500:.4f}")
+        # Save the model
+        best_model_path = os.path.join(args.log_dir, "best_model.pth")
+        model_config = {
+            'input_dim': input_dim,
+            'hidden_dims': hidden_dims,  # Use adaptive dimensions
+            'dropout': 0.3
+        }
+        if args.imbalanced == "BBN":
+            model_config['num_classes'] = 2
+            
+        torch.save({
+            'model_state_dict': model.state_dict(),
+            'model_config': model_config,
+            'imbalanced_method': args.imbalanced,
+            'fps_type': args.fps_type,
+            'model_type': 'BBN' if args.imbalanced == "BBN" else 'MLP'
+        }, best_model_path)
 
-    # Update results CSV
-    model_name = f"BBN_{args.imbalanced}" if args.imbalanced == "BBN" else f"MLP_{args.imbalanced}"
-    update_results_csv(
-        parent_dir, model_name, args.fps_type, prauc, roc_auc, args.imbalanced,
-        n_hits_50, clusters_50, cluster_prauc_50,
-        n_hits_200, clusters_200, cluster_prauc_200,
-        n_hits_500, clusters_500, cluster_prauc_500
-    )
+        # Final evaluation
+        model.eval()
+        with torch.no_grad():
+            X_val_device = X_val.to(device)
+            
+            if args.imbalanced == "BBN":
+                # Use ensemble prediction for BBN
+                model_output = model(X_val_device, branch="both")
+                if isinstance(model_output, tuple) and len(model_output) == 2:
+                    conv_output, rebal_output = model_output
+                else:
+                    # Fallback: get outputs separately
+                    conv_output = model(X_val_device, branch="conv")
+                    rebal_output = model(X_val_device, branch="rebal")
+                    if isinstance(conv_output, tuple):
+                        conv_output = conv_output[0]
+                    if isinstance(rebal_output, tuple):
+                        rebal_output = rebal_output[0]
+                
+                conv_probs = torch.softmax(conv_output, dim=1)[:, 1]
+                rebal_probs = torch.softmax(rebal_output, dim=1)[:, 1]
+                probabilities = (0.5 * conv_probs + 0.5 * rebal_probs).cpu().numpy()
+                predictions = (probabilities > 0.5).astype(int)
+            else:
+                outputs = model(X_val_device)
+                probabilities = torch.softmax(outputs, dim=1)[:, 1].cpu().numpy()
+                predictions = torch.argmax(outputs, dim=1).cpu().numpy()
 
-    # Save predictions
-    df_predictions_val = pd.DataFrame({
-        "SMILES": df_val["SMILES"],
-        "PredictedScore": probabilities,
-        "PredictedLabel": predictions,
-    })
-    predictions_path = os.path.join(args.log_dir, "val_predictions.csv")
-    df_predictions_val.to_csv(predictions_path, index=False)
-    print(f"Predictions saved to {predictions_path}")
+        # Calculate metrics
+        prauc = average_precision_score(DevLabel, probabilities)
+        roc_auc = roc_auc_score(DevLabel, probabilities)
+        
+        print(f"Final PRAUC on validation set: {prauc:.4f}")
+        print(f"Final ROC-AUC on validation set: {roc_auc:.4f}")
+
+        # Calculate cluster-based metrics
+        n_hits_50, clusters_50, cluster_prauc_50 = calculate_cluster_metrics(df_val, probabilities, 50)
+        n_hits_200, clusters_200, cluster_prauc_200 = calculate_cluster_metrics(df_val, probabilities, 200)
+        n_hits_500, clusters_500, cluster_prauc_500 = calculate_cluster_metrics(df_val, probabilities, 500)
+        
+        all_clusters = df_val[df_val["LABEL"] == 1].drop_duplicates("CLUSTER_LABEL").shape[0]
+        print(f"All positive clusters in validation set: {all_clusters}")
+        print(f"Top 50 selection - Hits: {n_hits_50}, Unique clusters: {clusters_50}, Cluster PRAUC: {cluster_prauc_50:.4f}")
+        print(f"Top 200 selection - Hits: {n_hits_200}, Unique clusters: {clusters_200}, Cluster PRAUC: {cluster_prauc_200:.4f}")
+        print(f"Top 500 selection - Hits: {n_hits_500}, Unique clusters: {clusters_500}, Cluster PRAUC: {cluster_prauc_500:.4f}")
+
+        # Update results CSV
+        model_name = f"BBN_{args.imbalanced}" if args.imbalanced == "BBN" else f"MLP_{args.imbalanced}"
+        update_results_csv(
+            parent_dir, model_name, args.fps_type, prauc, roc_auc, args.imbalanced,
+            n_hits_50, clusters_50, cluster_prauc_50,
+            n_hits_200, clusters_200, cluster_prauc_200,
+            n_hits_500, clusters_500, cluster_prauc_500
+        )
+
+        # Save predictions
+        df_predictions_val = pd.DataFrame({
+            "SMILES": df_val["SMILES"],
+            "PredictedScore": probabilities,
+            "PredictedLabel": predictions,
+        })
+        predictions_path = os.path.join(args.log_dir, "val_predictions.csv")
+        df_predictions_val.to_csv(predictions_path, index=False)
+        print(f"Predictions saved to {predictions_path}")
 
 
 if __name__ == "__main__":
@@ -820,7 +947,7 @@ if __name__ == "__main__":
         "--fps_type",
         type=str,
         required=True,
-        help="Fingerprint type: ['MACCS', 'RDK', 'AVALON', 'ATOMPAIR']",
+        help="Fingerprint type: single ['MACCS', 'RDK', 'AVALON', 'ATOMPAIR'] or comma-separated combinations (e.g., 'MACCS,RDK,AVALON,ATOMPAIR')",
     )
     parser.add_argument(
         "--imbalanced",
