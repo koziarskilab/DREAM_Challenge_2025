@@ -10,6 +10,7 @@ from tqdm import tqdm
 import pandas as pd
 from sklearn.metrics import precision_recall_curve, auc
 import pdb  # Add this import for debugging
+import datetime  # Add this import for timestamp
 
 # Import from baseline
 from helper import Dataset, ProcessData
@@ -18,12 +19,19 @@ from models.gcn import GCNClassifier
 from models.transformer import TransformerClassifier
 from models.mlp import MLPClassifier
 
-def train_epoch_gcn(model, dataloader, criterion, optimizer, device):
+# Import imbalanced learning loss functions
+from loss import get_loss_function
+
+def train_epoch_gcn(model, dataloader, criterion, optimizer, device, epoch=None):
     """Training epoch for GCN"""
     model.train()
     total_loss = 0
     predictions = []
     targets = []
+    
+    # Update loss function if it has update method (for epoch-dependent losses)
+    if hasattr(criterion, 'update') and epoch is not None:
+        criterion.update(epoch)
     
     for batch_idx, batch_data in enumerate(tqdm(dataloader, desc="Training GCN")):
         # Handle both old format (graph, labels) and new format (graph, labels, metadata)
@@ -41,7 +49,19 @@ def train_epoch_gcn(model, dataloader, criterion, optimizer, device):
         optimizer.zero_grad()
         
         logits = model(graph)
-        loss = criterion(logits, labels)
+        
+        # Handle different loss function types
+        if hasattr(criterion, 'forward'):
+            # Custom loss functions from loss.py
+            if hasattr(model, 'get_features') and criterion.__class__.__name__ == 'InfluenceBalancedLoss':
+                # For IB loss, we need features
+                features = model.get_features(graph) if hasattr(model, 'get_features') else logits
+                loss = criterion(logits, labels, feature=features)
+            else:
+                loss = criterion(logits, labels)
+        else:
+            # Standard PyTorch loss functions
+            loss = criterion(logits, labels)
         
         loss.backward()
         # Add gradient clipping
@@ -65,12 +85,16 @@ def train_epoch_gcn(model, dataloader, criterion, optimizer, device):
     
     return avg_loss, accuracy
 
-def train_epoch_transformer(model, dataloader, criterion, optimizer, device):
+def train_epoch_transformer(model, dataloader, criterion, optimizer, device, epoch=None):
     """Training epoch for Transformer"""
     model.train()
     total_loss = 0
     predictions = []
     targets = []
+    
+    # Update loss function if it has update method (for epoch-dependent losses)
+    if hasattr(criterion, 'update') and epoch is not None:
+        criterion.update(epoch)
     
     for batch_idx, batch_data in enumerate(tqdm(dataloader, desc="Training Transformer")):
         # Handle both old format (token_ids, attention_mask, labels) and new format (token_ids, attention_mask, labels, metadata)
@@ -86,7 +110,19 @@ def train_epoch_transformer(model, dataloader, criterion, optimizer, device):
         optimizer.zero_grad()
         
         logits = model(token_ids, attention_mask)
-        loss = criterion(logits, labels)
+        
+        # Handle different loss function types
+        if hasattr(criterion, 'forward'):
+            # Custom loss functions from loss.py
+            if hasattr(model, 'get_features') and criterion.__class__.__name__ == 'InfluenceBalancedLoss':
+                # For IB loss, we need features
+                features = model.get_features(token_ids, attention_mask) if hasattr(model, 'get_features') else logits
+                loss = criterion(logits, labels, feature=features)
+            else:
+                loss = criterion(logits, labels)
+        else:
+            # Standard PyTorch loss functions
+            loss = criterion(logits, labels)
         
         loss.backward()
         # Add gradient clipping
@@ -110,12 +146,16 @@ def train_epoch_transformer(model, dataloader, criterion, optimizer, device):
     
     return avg_loss, accuracy
 
-def train_epoch_mlp(model, dataloader, criterion, optimizer, device):
+def train_epoch_mlp(model, dataloader, criterion, optimizer, device, epoch=None):
     """Training epoch for MLP"""
     model.train()
     total_loss = 0
     predictions = []
     targets = []
+    
+    # Update loss function if it has update method (for epoch-dependent losses)
+    if hasattr(criterion, 'update') and epoch is not None:
+        criterion.update(epoch)
     
     for batch_idx, (fingerprints, labels) in enumerate(tqdm(dataloader, desc="Training MLP")):
         fingerprints = fingerprints.to(device)
@@ -124,7 +164,19 @@ def train_epoch_mlp(model, dataloader, criterion, optimizer, device):
         optimizer.zero_grad()
         
         logits = model(fingerprints)
-        loss = criterion(logits, labels)
+        
+        # Handle different loss function types
+        if hasattr(criterion, 'forward'):
+            # Custom loss functions from loss.py
+            if hasattr(model, 'get_features') and criterion.__class__.__name__ == 'InfluenceBalancedLoss':
+                # For IB loss, we need features
+                features = model.get_features(fingerprints) if hasattr(model, 'get_features') else logits
+                loss = criterion(logits, labels, feature=features)
+            else:
+                loss = criterion(logits, labels)
+        else:
+            # Standard PyTorch loss functions
+            loss = criterion(logits, labels)
         
         loss.backward()
         # Add gradient clipping
@@ -149,192 +201,172 @@ def train_epoch_mlp(model, dataloader, criterion, optimizer, device):
     return avg_loss, accuracy
 
 def evaluate_gcn(model, dataloader, criterion, device, is_validation=False, original_data=None):
-    """Evaluation for GCN with compound SMILES handling"""
+    """Evaluation function for GCN"""
     model.eval()
     total_loss = 0
     predictions = []
     targets = []
     probabilities = []
-    metadata_list = []
     
     with torch.no_grad():
-        for batch_data in tqdm(dataloader, desc="Evaluating GCN"):
-            if len(batch_data) == 3:  # New format with metadata
-                graph, labels, batch_metadata = batch_data
-                if graph is None:
-                    continue
-                metadata_list.extend(batch_metadata)
-            else:  # Old format
+        for batch_data in dataloader:
+            # Handle both old format (graph, labels) and new format (graph, labels, metadata)
+            if len(batch_data) == 3:
+                graph, labels, metadata = batch_data
+            else:
                 graph, labels = batch_data
-                if graph is None:
-                    continue
-                # Create dummy metadata for backward compatibility
-                batch_size = labels.size(0)
-                dummy_metadata = [{'original_idx': i, 'compound_variant': 0, 'total_variants': 1} 
-                                for i in range(batch_size)]
-                metadata_list.extend(dummy_metadata)
+                
+            if graph is None:
+                continue
                 
             graph = graph.to(device)
             labels = labels.to(device)
             
             logits = model(graph)
-            loss = criterion(logits, labels)
+            
+            # Handle different loss function types
+            if hasattr(criterion, 'forward'):
+                # Custom loss functions from loss.py
+                if hasattr(model, 'get_features') and criterion.__class__.__name__ == 'InfluenceBalancedLoss':
+                    # For IB loss, we need features
+                    features = model.get_features(graph) if hasattr(model, 'get_features') else logits
+                    loss = criterion(logits, labels, feature=features)
+                else:
+                    loss = criterion(logits, labels)
+            else:
+                # Standard PyTorch loss functions
+                loss = criterion(logits, labels)
             
             total_loss += loss.item()
             
             pred = torch.argmax(logits, dim=1)
-            prob = torch.softmax(logits, dim=1)
+            probs = torch.softmax(logits, dim=1)
             
             predictions.extend(pred.cpu().numpy())
             targets.extend(labels.cpu().numpy())
-            probabilities.extend(prob[:, 1].cpu().numpy())  # Get positive class probability
+            probabilities.extend(probs[:, 1].cpu().numpy())  # Get positive class probabilities
     
-    # Handle compound SMILES aggregation for validation
-    if is_validation and original_data:
-        agg_probs, orig_indices = aggregate_compound_predictions(probabilities, metadata_list, original_data)
-        agg_targets, _ = aggregate_compound_targets(targets, metadata_list, original_data)
-        agg_predictions = (agg_probs > 0.5).astype(int)
-        
-        return calculate_metrics_with_probs(total_loss, len(dataloader), agg_targets, agg_predictions, agg_probs)
-    else:
-        return calculate_metrics(total_loss, len(dataloader), targets, predictions, probabilities)
+    # Calculate metrics
+    avg_loss = total_loss / len(dataloader)
+    accuracy = accuracy_score(targets, predictions)
+    precision = precision_score(targets, predictions, average='weighted', zero_division=0)
+    recall = recall_score(targets, predictions, average='weighted', zero_division=0)
+    f1 = f1_score(targets, predictions, average='weighted', zero_division=0)
+    
+    # Calculate AUC metrics
+    try:
+        auc_score = roc_auc_score(targets, probabilities)
+    except ValueError:
+        auc_score = 0.0
+    
+    if is_validation:
+        print(f"Validation - Loss: {avg_loss:.6f}, Acc: {accuracy:.4f}, Prec: {precision:.4f}, Rec: {recall:.4f}, F1: {f1:.4f}, AUC: {auc_score:.4f}")
+    
+    return avg_loss, accuracy, precision, recall, f1, auc_score
 
 def evaluate_transformer(model, dataloader, criterion, device, is_validation=False, original_data=None):
-    """Evaluation for Transformer with compound SMILES handling"""
+    """Evaluation function for Transformer"""
     model.eval()
     total_loss = 0
     predictions = []
     targets = []
     probabilities = []
-    metadata_list = []
     
     with torch.no_grad():
-        for batch_data in tqdm(dataloader, desc="Evaluating Transformer"):
-            if len(batch_data) == 4:  # New format with metadata
-                token_ids, attention_mask, labels, batch_metadata = batch_data
-                metadata_list.extend(batch_metadata)
-            else:  # Old format
+        for batch_data in dataloader:
+            # Handle both old format (token_ids, attention_mask, labels) and new format (token_ids, attention_mask, labels, metadata)
+            if len(batch_data) == 4:
+                token_ids, attention_mask, labels, metadata = batch_data
+            else:
                 token_ids, attention_mask, labels = batch_data
-                # Create dummy metadata for backward compatibility
-                batch_size = labels.size(0)
-                dummy_metadata = [{'original_idx': i, 'compound_variant': 0, 'total_variants': 1} 
-                                for i in range(batch_size)]
-                metadata_list.extend(dummy_metadata)
-            
+                
             token_ids = token_ids.to(device)
             attention_mask = attention_mask.to(device)
             labels = labels.to(device)
             
             logits = model(token_ids, attention_mask)
-            loss = criterion(logits, labels)
+            
+            # Handle different loss function types
+            if hasattr(criterion, 'forward'):
+                # Custom loss functions from loss.py
+                if hasattr(model, 'get_features') and criterion.__class__.__name__ == 'InfluenceBalancedLoss':
+                    # For IB loss, we need features
+                    features = model.get_features(token_ids, attention_mask) if hasattr(model, 'get_features') else logits
+                    loss = criterion(logits, labels, feature=features)
+                else:
+                    loss = criterion(logits, labels)
+            else:
+                # Standard PyTorch loss functions
+                loss = criterion(logits, labels)
             
             total_loss += loss.item()
             
             pred = torch.argmax(logits, dim=1)
-            prob = torch.softmax(logits, dim=1)
+            probs = torch.softmax(logits, dim=1)
             
             predictions.extend(pred.cpu().numpy())
             targets.extend(labels.cpu().numpy())
-            probabilities.extend(prob[:, 1].cpu().numpy())  # Get positive class probability
+            probabilities.extend(probs[:, 1].cpu().numpy())  # Get positive class probabilities
     
-    # Handle compound SMILES aggregation for validation
-    if is_validation and original_data:
-        agg_probs, orig_indices = aggregate_compound_predictions(probabilities, metadata_list, original_data)
-        agg_targets, _ = aggregate_compound_targets(targets, metadata_list, original_data)
-        agg_predictions = (agg_probs > 0.5).astype(int)
-        
-        return calculate_metrics_with_probs(total_loss, len(dataloader), agg_targets, agg_predictions, agg_probs)
-    else:
-        return calculate_metrics(total_loss, len(dataloader), targets, predictions, probabilities)
-
-def calculate_metrics(total_loss, num_batches, targets, predictions, probabilities):
-    """Calculate evaluation metrics"""
-    avg_loss = total_loss / num_batches
-    
+    # Calculate metrics
+    avg_loss = total_loss / len(dataloader)
     accuracy = accuracy_score(targets, predictions)
-    precision = precision_score(targets, predictions, average='weighted')
-    recall = recall_score(targets, predictions, average='weighted')
-    f1 = f1_score(targets, predictions, average='weighted')
+    precision = precision_score(targets, predictions, average='weighted', zero_division=0)
+    recall = recall_score(targets, predictions, average='weighted', zero_division=0)
+    f1 = f1_score(targets, predictions, average='weighted', zero_division=0)
     
-    # ROC AUC (for binary classification)
-    if len(set(targets)) == 2:
-        probs = np.array(probabilities)
-        auc_score = roc_auc_score(targets, probs[:, 1])
-    else:
-        auc_score = None
-    
-    return avg_loss, accuracy, precision, recall, f1, auc_score
-
-def calculate_metrics_with_probs(total_loss, num_batches, targets, predictions, probabilities):
-    """Calculate evaluation metrics when probabilities are already computed"""
-    avg_loss = total_loss / num_batches
-    
-    accuracy = accuracy_score(targets, predictions)
-    precision = precision_score(targets, predictions, average='weighted')
-    recall = recall_score(targets, predictions, average='weighted')
-    f1 = f1_score(targets, predictions, average='weighted')
-    
-    # ROC AUC (for binary classification)
-    if len(set(targets)) == 2:
+    # Calculate AUC metrics
+    try:
         auc_score = roc_auc_score(targets, probabilities)
-    else:
-        auc_score = None
+    except ValueError:
+        auc_score = 0.0
+    
+    if is_validation:
+        print(f"Validation - Loss: {avg_loss:.6f}, Acc: {accuracy:.4f}, Prec: {precision:.4f}, Rec: {recall:.4f}, F1: {f1:.4f}, AUC: {auc_score:.4f}")
     
     return avg_loss, accuracy, precision, recall, f1, auc_score
 
-def aggregate_compound_predictions(probabilities, metadata_list, original_data):
-    """Aggregate predictions for compound SMILES by taking the maximum score"""
-    # Group predictions by original index
-    grouped_preds = {}
-    for prob, metadata in zip(probabilities, metadata_list):
-        orig_idx = metadata['original_idx']
-        variant = metadata['compound_variant']
-        
-        if orig_idx not in grouped_preds:
-            grouped_preds[orig_idx] = []
-        
-        grouped_preds[orig_idx].append((variant, prob))
+def aggregate_compound_predictions(probabilities, metadata, original_data):
+    """
+    Aggregate predictions for compounds that have multiple variants (conformers/tautomers)
     
-    # Take maximum probability for each original sample
+    Args:
+        probabilities: List of prediction probabilities
+        metadata: List of metadata dictionaries with compound information
+        original_data: Original dataset with compound information
+    
+    Returns:
+        aggregated_probabilities: Array of aggregated probabilities per unique compound
+        original_indices: Array of original compound indices
+    """
+    if not metadata or not original_data:
+        return np.array(probabilities), np.arange(len(probabilities))
+    
+    # Group predictions by original compound index
+    compound_predictions = {}
+    
+    for prob, meta in zip(probabilities, metadata):
+        original_idx = meta.get('original_idx', meta.get('compound_idx', 0))
+        
+        if original_idx not in compound_predictions:
+            compound_predictions[original_idx] = []
+        compound_predictions[original_idx].append(prob)
+    
+    # Aggregate predictions (using mean)
     aggregated_probs = []
     original_indices = []
     
-    for orig_idx in sorted(grouped_preds.keys()):
-        variants_probs = grouped_preds[orig_idx]
-        # Take the variant with highest probability (for positive class)
-        best_variant, best_prob = max(variants_probs, key=lambda x: x[1])
-        aggregated_probs.append(best_prob)
-        # Use orig_idx directly as it should correspond to the position in original_data
-        original_indices.append(orig_idx)
+    for original_idx in sorted(compound_predictions.keys()):
+        compound_probs = compound_predictions[original_idx]
+        # Use mean aggregation
+        aggregated_prob = np.mean(compound_probs)
+        aggregated_probs.append(aggregated_prob)
+        original_indices.append(original_idx)
     
-    return np.array(aggregated_probs), original_indices
-
-def aggregate_compound_targets(targets, metadata_list, original_data):
-    """Aggregate targets/labels for compound SMILES by taking the original label"""
-    # Group targets by original index
-    grouped_targets = {}
-    for target, metadata in zip(targets, metadata_list):
-        orig_idx = metadata['original_idx']
-        
-        if orig_idx not in grouped_targets:
-            grouped_targets[orig_idx] = target
-        # For targets, we expect all variants of the same compound to have the same label
-        # So we can just take the first one or verify they're all the same
-        assert grouped_targets[orig_idx] == target, f"Inconsistent labels for compound {orig_idx}: {grouped_targets[orig_idx]} vs {target}"
-    
-    # Get aggregated targets in the same order as original indices
-    aggregated_targets = []
-    original_indices = []
-    
-    for orig_idx in sorted(grouped_targets.keys()):
-        aggregated_targets.append(grouped_targets[orig_idx])
-        original_indices.append(orig_idx)
-    
-    return np.array(aggregated_targets), original_indices
+    return np.array(aggregated_probs), np.array(original_indices)
 
 def calculate_cluster_metrics(df_val, probabilities, top_n):
     """Calculate cluster-based metrics for top N compounds"""
-    # pdb.set_trace()  # Add debug breakpoint here
     all_clusters = df_val[df_val["Label"] == 1].drop_duplicates("CLUSTER_LABEL").shape[0]
     
     sorted_indices = probabilities.argsort()[::-1]
@@ -343,60 +375,97 @@ def calculate_cluster_metrics(df_val, probabilities, top_n):
     
     hits = selection[selection["Label"] == 1]
     n_hits = hits.shape[0]
-    clusters = hits.drop_duplicates("CLUSTER_LABEL").shape[0]
     
-    # Calculate cluster PRAUC
-    cluster_prauc = None
-    if clusters > 1:
-        cluster_recall = []
-        cluster_precision = []
-        
-        for th in sorted(hits["Score"].unique(), reverse=True):
-            found = hits[hits["Score"] >= th].drop_duplicates("CLUSTER_LABEL").shape[0]
-            cluster_recall.append(found/all_clusters)
-            selected = selection[selection["Score"] >= th].shape[0]
-            cluster_precision.append(found/selected if selected > 0 else 0)
-        
-        if len(cluster_recall) >= 2:
-            cluster_prauc = auc(cluster_recall, cluster_precision)
-        else:
-            cluster_prauc = cluster_precision[0] if cluster_precision else 0
-    elif clusters == 1:
-        th = hits["Score"].min()
-        selected = selection[selection["Score"] >= th].shape[0]
-        cluster_prauc = 1/selected if selected > 0 else 0
+    if n_hits > 0:
+        unique_clusters = hits["CLUSTER_LABEL"].nunique()
+        cluster_prauc = average_precision_score(
+            selection["Label"], selection["Score"]
+        )
     else:
-        cluster_prauc = 0
+        unique_clusters = 0
+        cluster_prauc = 0.0
     
-    return n_hits, clusters, cluster_prauc
+    return n_hits, unique_clusters, cluster_prauc
 
 def get_fingerprint_dim(fp_type):
-    """Get fingerprint dimension based on type"""
-    if fp_type == 'MACCS':
-        return 167
-    elif fp_type == 'RDK':
-        return 2048
-    elif fp_type == 'AVALON':
-        return 2048
-    elif fp_type == 'ATOMPAIR':
-        return 2048
-    else:
-        raise ValueError(f"Unsupported fingerprint type: {fp_type}")
+    """Get the dimension of fingerprint based on type"""
+    fp_dims = {
+        'MACCS': 167,
+        'RDK': 2048,
+        'AVALON': 1024,
+        'ATOMPAIR': 2048
+    }
+    return fp_dims.get(fp_type, 2048)
 
-def update_results_csv(parent_dir, model_type, data_type, prauc, roc_auc, metric,
+def get_criterion_and_class_info(train_dataset, loss_type, device):
+    """
+    Get the appropriate loss function and calculate class distribution
+    
+    Args:
+        train_dataset: Training dataset
+        loss_type: Loss function type ('CE', 'CB_F', 'BS', 'CB_CE', 'CS', 'IB', 'CDT')
+        device: Device to use
+    
+    Returns:
+        criterion: Loss function
+        num_class_list: List of class sample counts
+    """
+    # Calculate class distribution from training dataset
+    train_labels = []
+    
+    # Extract labels from different dataset types
+    if hasattr(train_dataset, '__getitem__'):
+        for i in range(len(train_dataset)):
+            try:
+                sample = train_dataset[i]
+                if len(sample) >= 2:
+                    # Get label (second element for most datasets)
+                    if isinstance(sample[1], torch.Tensor):
+                        train_labels.append(sample[1].item())
+                    else:
+                        train_labels.append(sample[1])
+            except Exception as e:
+                # Skip problematic samples
+                continue
+    
+    # Fallback: if we couldn't extract labels, assume balanced dataset
+    if not train_labels:
+        print("Warning: Could not extract labels from training dataset, assuming balanced classes")
+        num_class_list = [1000, 1000]  # Default balanced
+    else:
+        train_labels = np.array(train_labels)
+        num_class_list = [np.sum(train_labels == 0), np.sum(train_labels == 1)]
+    
+    print(f"Class distribution - Class 0: {num_class_list[0]}, Class 1: {num_class_list[1]}")
+    
+    # Get appropriate loss function
+    if loss_type == "CE":
+        # Standard cross-entropy loss
+        criterion = nn.CrossEntropyLoss()
+    else:
+        # Imbalanced learning loss functions
+        criterion = get_loss_function(loss_type, num_class_list, device)
+    
+    return criterion, num_class_list
+
+def update_results_csv(parent_dir, model_type, fps_type, prauc, roc_auc, metric,
                        hits_50=None, clusters_50=None, cluster_prauc_50=None,
                        hits_200=None, clusters_200=None, cluster_prauc_200=None,
-                       hits_500=None, clusters_500=None, cluster_prauc_500=None):
-    """Update the results CSV file with enhanced metrics"""
-    import datetime
-    
-    results_file = os.path.join(parent_dir, "model_results.csv")
+                       hits_500=None, clusters_500=None, cluster_prauc_500=None,
+                       hits_5000=None, clusters_5000=None, cluster_prauc_5000=None):
+    """Update the results CSV file with enhanced metrics including top 5000"""
+    # Use combination-specific CSV file name
+    if "," in fps_type:
+        combination_name = fps_type.replace(",", "_")
+        results_file = os.path.join(parent_dir, f"model_results_{combination_name}.csv")
+    else:
+        results_file = os.path.join(parent_dir, "model_results.csv")
 
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     new_data = {
         "Timestamp": timestamp,
         "ModelType": model_type,
-        "DataType": data_type,  # Changed from FingerprintType to DataType
+        "FingerprintType": fps_type,
         "OptimizationMetric": metric,
         "PRAUC": prauc,
         "ROC-AUC": roc_auc,
@@ -421,6 +490,13 @@ def update_results_csv(parent_dir, model_type, data_type, prauc, roc_auc, metric
         new_data["Clusters_Top500"] = clusters_500
     if cluster_prauc_500 is not None:
         new_data["ClusterPRAUC_Top500"] = cluster_prauc_500
+    # Add top 5000 metrics
+    if hits_5000 is not None:
+        new_data["Hits_Top5000"] = hits_5000
+    if clusters_5000 is not None:
+        new_data["Clusters_Top5000"] = clusters_5000
+    if cluster_prauc_5000 is not None:
+        new_data["ClusterPRAUC_Top5000"] = cluster_prauc_5000
 
     if os.path.exists(results_file):
         df_results = pd.read_csv(results_file)
@@ -439,6 +515,13 @@ def main():
     parser.add_argument('--label_col', type=str, default='Label', help='Label column name')
     parser.add_argument('--model_type', type=str, default='gcn', choices=['gcn', 'transformer', 'mlp'], 
                         help='Model type: gcn, transformer, or mlp')
+    
+    # Add loss function argument
+    parser.add_argument('--loss_type', type=str, default='CE', 
+                        choices=['CE', 'CB_F', 'BS', 'CB_CE', 'CS', 'IB', 'CDT'],
+                        help='Loss function type: CE (Cross-Entropy), CB_F (Class-Balanced Focal), '
+                             'BS (Balanced Softmax), CB_CE (Class-Balanced CE), CS (Cost-Sensitive), '
+                             'IB (Influence-Balanced), CDT (Class-Dependent Temperatures)')
     
     # Add skip training flag
     parser.add_argument('--skip_training', action='store_true', 
@@ -483,6 +566,7 @@ def main():
     device = torch.device(args.device if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
     print(f"Using model: {args.model_type}")
+    print(f"Using loss function: {args.loss_type}")
     
     if args.skip_training:
         print("Skip training mode: Using randomly initialized model for validation only")
@@ -630,12 +714,16 @@ def main():
         train_epoch_fn = train_epoch_mlp
         evaluate_fn = None  # MLP uses different evaluation logic
     
-    # Loss and optimizer
-    criterion = nn.CrossEntropyLoss()
+    # Get appropriate loss function and class distribution
     if not args.skip_training:
+        criterion, num_class_list = get_criterion_and_class_info(train_dataset, args.loss_type, device)
         optimizer = optim.Adam(model.parameters(), lr=args.lr)
         # Add learning rate scheduler
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=3, verbose=True)
+    else:
+        # For skip training mode, use standard CE loss
+        criterion = nn.CrossEntropyLoss()
+        num_class_list = [1000, 1000]  # Default balanced
     
     # Run validation only if skipping training
     if args.skip_training:
@@ -675,10 +763,12 @@ def main():
             n_hits_50, clusters_50, cluster_prauc_50 = calculate_cluster_metrics(df_val, val_probabilities, 50)
             n_hits_200, clusters_200, cluster_prauc_200 = calculate_cluster_metrics(df_val, val_probabilities, 200)
             n_hits_500, clusters_500, cluster_prauc_500 = calculate_cluster_metrics(df_val, val_probabilities, 500)
+            n_hits_5000, clusters_5000, cluster_prauc_5000 = calculate_cluster_metrics(df_val, val_probabilities, 5000)
             
             print(f"Top 50 - Hits: {n_hits_50}, Clusters: {clusters_50}, Cluster PRAUC: {cluster_prauc_50:.4f}")
             print(f"Top 200 - Hits: {n_hits_200}, Clusters: {clusters_200}, Cluster PRAUC: {cluster_prauc_200:.4f}")
             print(f"Top 500 - Hits: {n_hits_500}, Clusters: {clusters_500}, Cluster PRAUC: {cluster_prauc_500:.4f}")
+            print(f"Top 5000 - Hits: {n_hits_5000}, Clusters: {clusters_5000}, Cluster PRAUC: {cluster_prauc_5000:.4f}")
             
         else:
             # For GCN/Transformer, use new evaluation with compound SMILES support
@@ -768,10 +858,12 @@ def main():
             n_hits_50, clusters_50, cluster_prauc_50 = calculate_cluster_metrics(df_val, val_probabilities, 50)
             n_hits_200, clusters_200, cluster_prauc_200 = calculate_cluster_metrics(df_val, val_probabilities, 200)
             n_hits_500, clusters_500, cluster_prauc_500 = calculate_cluster_metrics(df_val, val_probabilities, 500)
+            n_hits_5000, clusters_5000, cluster_prauc_5000 = calculate_cluster_metrics(df_val, val_probabilities, 5000)
             
             print(f"Top 50 - Hits: {n_hits_50}, Clusters: {clusters_50}, Cluster PRAUC: {cluster_prauc_50:.4f}")
             print(f"Top 200 - Hits: {n_hits_200}, Clusters: {clusters_200}, Cluster PRAUC: {cluster_prauc_200:.4f}")
             print(f"Top 500 - Hits: {n_hits_500}, Clusters: {clusters_500}, Cluster PRAUC: {cluster_prauc_500:.4f}")
+            print(f"Top 5000 - Hits: {n_hits_5000}, Clusters: {clusters_5000}, Cluster PRAUC: {cluster_prauc_5000:.4f}")
         
         print("Validation completed!")
         return
@@ -779,7 +871,7 @@ def main():
     # Training loop (only if not skipping training)
     best_val_prauc = 0
     best_val_acc = 0
-    best_clusters_50 = 0  # Change from best_cluster_prauc_50 to best_clusters_50
+    best_clusters_5000 = 0  # Change from best_clusters_50 to best_clusters_5000
     patience_counter = 0  # Add patience counter
     
     print("Starting training...")
@@ -789,7 +881,7 @@ def main():
         print("-" * 50)
         
         # Training
-        train_loss, train_acc = train_epoch_fn(model, train_loader, criterion, optimizer, device)
+        train_loss, train_acc = train_epoch_fn(model, train_loader, criterion, optimizer, device, epoch + 1)
         print(f"Epoch {epoch+1} Summary - Training Loss: {train_loss:.6f}, Training Accuracy: {train_acc:.4f}")
         
         # Validation
@@ -830,10 +922,12 @@ def main():
             n_hits_50, clusters_50, cluster_prauc_50 = calculate_cluster_metrics(df_val, val_probabilities, 50)
             n_hits_200, clusters_200, cluster_prauc_200 = calculate_cluster_metrics(df_val, val_probabilities, 200)
             n_hits_500, clusters_500, cluster_prauc_500 = calculate_cluster_metrics(df_val, val_probabilities, 500)
+            n_hits_5000, clusters_5000, cluster_prauc_5000 = calculate_cluster_metrics(df_val, val_probabilities, 5000)
             
             print(f"Top 50 - Hits: {n_hits_50}, Clusters: {clusters_50}, Cluster PRAUC: {cluster_prauc_50:.4f}")
             print(f"Top 200 - Hits: {n_hits_200}, Clusters: {clusters_200}, Cluster PRAUC: {cluster_prauc_200:.4f}")
             print(f"Top 500 - Hits: {n_hits_500}, Clusters: {clusters_500}, Cluster PRAUC: {cluster_prauc_500:.4f}")
+            print(f"Top 5000 - Hits: {n_hits_5000}, Clusters: {clusters_5000}, Cluster PRAUC: {cluster_prauc_5000:.4f}")
             
         else:
             # For GCN/Transformer, use new evaluation with compound SMILES support
@@ -900,17 +994,29 @@ def main():
             n_hits_50, clusters_50, cluster_prauc_50 = calculate_cluster_metrics(df_val, val_probabilities, 50)
             n_hits_200, clusters_200, cluster_prauc_200 = calculate_cluster_metrics(df_val, val_probabilities, 200)
             n_hits_500, clusters_500, cluster_prauc_500 = calculate_cluster_metrics(df_val, val_probabilities, 500)
+            n_hits_5000, clusters_5000, cluster_prauc_5000 = calculate_cluster_metrics(df_val, val_probabilities, 5000)
             
             print(f"Top 50 - Hits: {n_hits_50}, Clusters: {clusters_50}, Cluster PRAUC: {cluster_prauc_50:.4f}")
             print(f"Top 200 - Hits: {n_hits_200}, Clusters: {clusters_200}, Cluster PRAUC: {cluster_prauc_200:.4f}")
             print(f"Top 500 - Hits: {n_hits_500}, Clusters: {clusters_500}, Cluster PRAUC: {cluster_prauc_500:.4f}")
+            print(f"Top 5000 - Hits: {n_hits_5000}, Clusters: {clusters_5000}, Cluster PRAUC: {cluster_prauc_5000:.4f}")
         
-        # Save best model and check for early stopping - use clusters_50 as metric
+        # Save best model and check for early stopping - use clusters_5000 as metric
         improved = False
-        if clusters_50 > best_clusters_50:
-            best_clusters_50 = clusters_50
-            torch.save(model.state_dict(), os.path.join(args.save_dir, f'best_{args.model_type}_model.pth'))
-            print(f"Best model saved! New best clusters_50: {clusters_50}")
+        if clusters_5000 > best_clusters_5000:
+            best_clusters_5000 = clusters_5000
+            
+            # Save model with loss type info
+            model_save_path = os.path.join(args.save_dir, f'best_{args.model_type}_{args.loss_type}_model.pth')
+            torch.save({
+                'model_state_dict': model.state_dict(),
+                'model_type': args.model_type,
+                'loss_type': args.loss_type,
+                'clusters_5000': clusters_5000,
+                'epoch': epoch + 1
+            }, model_save_path)
+            
+            print(f"Best model saved! New best clusters_5000: {clusters_5000}")
             improved = True
             
             # Store the best results when improved (but don't update CSV yet)
@@ -922,6 +1028,7 @@ def main():
                 best_n_hits_50, best_clusters_50_for_csv, best_cluster_prauc_50 = n_hits_50, clusters_50, cluster_prauc_50
                 best_n_hits_200, best_clusters_200, best_cluster_prauc_200 = n_hits_200, clusters_200, cluster_prauc_200
                 best_n_hits_500, best_clusters_500, best_cluster_prauc_500 = n_hits_500, clusters_500, cluster_prauc_500
+                best_n_hits_5000, best_clusters_5000, best_cluster_prauc_5000 = n_hits_5000, clusters_5000, cluster_prauc_5000
             else:
                 # For GCN/Transformer, calculate PRAUC and ROC-AUC from probabilities
                 if hasattr(val_dataset, 'original_data') and val_dataset.original_data:
@@ -942,6 +1049,7 @@ def main():
                 best_n_hits_50, best_clusters_50_for_csv, best_cluster_prauc_50 = n_hits_50, clusters_50, cluster_prauc_50
                 best_n_hits_200, best_clusters_200, best_cluster_prauc_200 = n_hits_200, clusters_200, cluster_prauc_200
                 best_n_hits_500, best_clusters_500, best_cluster_prauc_500 = n_hits_500, clusters_500, cluster_prauc_500
+                best_n_hits_5000, best_clusters_5000, best_cluster_prauc_5000 = n_hits_5000, clusters_5000, cluster_prauc_5000
             
             # Save predictions for best model
             if args.model_type == 'mlp':
@@ -966,7 +1074,7 @@ def main():
                         "PredictedLabel": (np.array(all_probabilities) > 0.5).astype(int),
                     })
             
-            predictions_path = os.path.join(args.save_dir, f"best_{args.model_type}_predictions.csv")
+            predictions_path = os.path.join(args.save_dir, f"best_{args.model_type}_{args.loss_type}_predictions.csv")
             df_predictions_val.to_csv(predictions_path, index=False)
             print(f"Best predictions saved to {predictions_path}")
         
@@ -975,7 +1083,7 @@ def main():
             patience_counter = 0
         else:
             patience_counter += 1
-            print(f"No improvement for {patience_counter} epochs (current clusters_50: {clusters_50}, best: {best_clusters_50})")
+            print(f"No improvement for {patience_counter} epochs (current clusters_5000: {clusters_5000}, best: {best_clusters_5000})")
         
         if patience_counter >= args.patience:
             print(f"Early stopping triggered after {patience_counter} epochs without improvement")
@@ -983,31 +1091,32 @@ def main():
         
         # Update learning rate scheduler if using one
         if 'scheduler' in locals():
-            scheduler.step(clusters_50)  # Use clusters_50 for scheduler too
+            scheduler.step(clusters_5000)  # Use clusters_5000 for scheduler too
     
-    print(f"\nTraining completed. Best clusters_50: {best_clusters_50}")
+    print(f"\nTraining completed. Best clusters_5000: {best_clusters_5000}")
     
     # Update results CSV only at the end of training with the best metrics
     parent_dir = os.path.dirname(os.path.abspath(args.save_dir))
     update_results_csv(
-        parent_dir, f"{args.model_type.upper()}", 
+        parent_dir, f"{args.model_type.upper()}_{args.loss_type}", 
         data_type,
-        best_val_prauc, best_val_roc_auc, "clusters_50",
+        best_val_prauc, best_val_roc_auc, "clusters_5000",  # Change metric name
         best_n_hits_50, best_clusters_50_for_csv, best_cluster_prauc_50,
         best_n_hits_200, best_clusters_200, best_cluster_prauc_200,
-        best_n_hits_500, best_clusters_500, best_cluster_prauc_500
+        best_n_hits_500, best_clusters_500, best_cluster_prauc_500,
+        best_n_hits_5000, best_clusters_5000, best_cluster_prauc_5000
     )
     
     # Final summary of best results
     print(f"\n{'='*60}")
-    print(f"FINAL BEST RESULTS FOR {args.model_type.upper()}")
+    print(f"FINAL BEST RESULTS FOR {args.model_type.upper()} with {args.loss_type}")
     print(f"{'='*60}")
-    print(f"Best clusters_50: {best_clusters_50}")
+    print(f"Best clusters_5000: {best_clusters_5000}")
     if 'best_val_prauc' in locals():
         print(f"Best PRAUC: {best_val_prauc:.4f}")
         print(f"Best ROC-AUC: {best_val_roc_auc:.4f}")
-    print(f"Model saved to: {os.path.join(args.save_dir, f'best_{args.model_type}_model.pth')}")
-    print(f"Predictions saved to: {os.path.join(args.save_dir, f'best_{args.model_type}_predictions.csv')}")
+    print(f"Model saved to: {model_save_path}")
+    print(f"Predictions saved to: {os.path.join(args.save_dir, f'best_{args.model_type}_{args.loss_type}_predictions.csv')}")
 
 if __name__ == "__main__":
     main()
