@@ -153,3 +153,30 @@ class TransformerClassifier(nn.Module):
         logits = self.classifier(pooled_output)
         
         return logits
+
+    def get_features(self, token_ids, attention_mask):
+        """Extract features before the final classification layer"""
+        # Ensure inputs are on the same device as the model
+        device = next(self.parameters()).device
+        token_ids = token_ids.to(device)
+        if attention_mask is not None:
+            attention_mask = attention_mask.to(device)
+        
+        if attention_mask is not None:
+            # Convert attention mask to the format expected by the model
+            extended_attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
+            extended_attention_mask = extended_attention_mask.to(dtype=next(self.parameters()).dtype)
+            extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
+        else:
+            extended_attention_mask = None
+            
+        # Get embeddings using the correct attribute name
+        embedding_output = self.embeddings(token_ids)
+        
+        # Pass through encoder (transformer layers)
+        encoder_outputs = self.encoder(embedding_output, extended_attention_mask)
+        
+        # Use the [CLS] token representation (first token) and apply pooler
+        pooled_output = self.pooler(encoder_outputs[:, 0])
+        
+        return pooled_output

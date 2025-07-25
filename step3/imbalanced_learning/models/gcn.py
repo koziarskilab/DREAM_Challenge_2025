@@ -142,3 +142,16 @@ class GCNClassifier(nn.Module):
         logits = self.classifier(graph_repr)
         
         return logits
+
+    def get_features(self, graph):
+        """Extract features before the final classification layer"""
+        h = graph.ndata['feat']
+        
+        # Pass through all GCN layers
+        for layer in self.gnn_layers:
+            h = layer(graph, h)
+        
+        # Apply graph-level readout to get graph representation
+        graph_feat = self.readout(graph, h)
+        
+        return graph_feat
