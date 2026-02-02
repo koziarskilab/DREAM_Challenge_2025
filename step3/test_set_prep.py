@@ -16,14 +16,14 @@ def compute_molecular_properties(smiles):
     return mw, alogp
 
 # Read the SDF file
-sdf_file = "/h/yfjiang/research/DREAM_Challenge_2025/datasets/DREAM/datasets/DREAM/Enamine_screening_collection_202506.sdf"
+sdf_file = "../datasets/DREAM/Enamine_screening_collection_202506.sdf"
 
 print("Loading SDF file...")
 df = PandasTools.LoadSDF(sdf_file)
 print(f"Loaded {len(df)} molecules from SDF file")
 
 # Load known active molecules to exclude
-known_actives_file = "/h/yfjiang/research/DREAM_Challenge_2025/datasets/DREAM/known_active_molecules.csv"
+known_actives_file = "../datasets/DREAM/known_active_molecules.csv"
 known_actives_df = pd.read_csv(known_actives_file)
 known_active_smiles = set(known_actives_df['SMILES'].tolist())
 print(f"Loaded {len(known_active_smiles)} known active molecules to exclude")
@@ -75,7 +75,7 @@ print(f"Filtered molecules based on MW < 500 and aLogP < 4.0: {len(properties_li
 filtered_df = pd.DataFrame(properties_list)
 
 # Save the results with SMILES included
-output_file = "/h/yfjiang/research/DREAM_Challenge_2025/datasets/DREAM/datasets/DREAM/Test_Step3_Dataset_DREAM.csv"
+output_file = "../datasets/DREAM/Test_Step3_Dataset_DREAM.csv"
 filtered_df[['Catalog_ID', 'SMILES', 'Molecular_Weight', 'aLogP']].to_csv(output_file, index=False)
 
 print(f"Screened results saved to {output_file}")

@@ -8,7 +8,7 @@ import datetime
 
 def load_pretrained_model(model_type, fingerprint_combo):
     """Load a pretrained model from the specified path"""
-    model_path = f"./runs/DREAM/step2/{model_type}/{fingerprint_combo}/best_model.pkl"
+    model_path = f"../runs/DREAM/step2/{model_type}/{fingerprint_combo}/best_model.pkl"
     
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"Model not found at {model_path}")
@@ -157,10 +157,10 @@ def generate_test_predictions_step3():
             'Molecular_Weight': 'float32',
             'aLogP': 'float32'
         }
-        df_test = pd.read_csv("./datasets/DREAM/Test_Step3_Dataset_DREAM_w_FP.csv", dtype=dtype_dict)
+        df_test = pd.read_csv("../datasets/DREAM/Test_Step3_Dataset_DREAM_w_FP.csv", dtype=dtype_dict)
     except:
         # Fallback to default loading
-        df_test = Dataset("./datasets/DREAM/Test_Step3_Dataset_DREAM_w_FP.csv").get_dataframe()
+        df_test = Dataset("../datasets/DREAM/Test_Step3_Dataset_DREAM_w_FP.csv").get_dataframe()
     
     print(f"Test set shape: {df_test.shape}")
     print(f"Memory usage: {df_test.memory_usage(deep=True).sum() / 1024**2:.2f} MB")
@@ -244,11 +244,11 @@ def generate_test_predictions_step3():
     gc.collect()
     
     # Ensure the output directory exists
-    output_dir = "./runs/DREAM/step3"
+    output_dir = "../runs/DREAM/step3"
     os.makedirs(output_dir, exist_ok=True)
     
     # Save results to the specified DREAM challenge step 3 submission path
-    output_path = "./runs/DREAM/step3/TeamKoziarskiLab_Step3.csv"
+    output_path = "../runs/DREAM/step3/TeamKoziarskiLab_Step3.csv"
     final_result.to_csv(output_path, index=False)
     
     print(f"\nDREAM Challenge Step3 results saved to: {output_path}")
@@ -259,7 +259,7 @@ def generate_test_predictions_step3():
     print(final_result.head(10).to_string(index=False))
     
     # Save individual model predictions for analysis (only for top 5000)
-    individual_path = "./runs/DREAM/step3/test_predictions_individual_models_step3.csv"
+    individual_path = "../runs/DREAM/step3/test_predictions_individual_models_step3.csv"
     individual_predictions_df.to_csv(individual_path, index=False)
     print(f"Individual model predictions (top 5000) saved to: {individual_path}")
     
@@ -273,7 +273,7 @@ def generate_test_predictions_step3():
         "compounds_saved": "top_5000_only"
     }
     
-    meta_info_path = "./runs/DREAM/step3/ensemble_info.pkl"
+    meta_info_path = "../runs/DREAM/step3/ensemble_info.pkl"
     with open(meta_info_path, "wb") as f:
         pickle.dump(ensemble_info, f, pickle.HIGHEST_PROTOCOL)
     print(f"Ensemble info saved to: {meta_info_path}")
@@ -299,7 +299,7 @@ if __name__ == "__main__":
     if results is not None:
         print("\n" + "=" * 80)
         print("SUCCESS: DREAM Challenge Step3 predictions generated successfully!")
-        print("Submission file created: ./runs/DREAM/step3/TeamKoziarskiLab_Step3.csv")
+        print("Submission file created: ../runs/DREAM/step3/TeamKoziarskiLab_Step3.csv")
         print("File format: Catalog_ID, SMILES, Molecular_Weight, aLogP, Score")
         print("Contains only top 5000 compounds ranked by max voting ensemble")
         print("Ready for DREAM Challenge Step 3 submission!")
