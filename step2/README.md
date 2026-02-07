@@ -55,13 +55,13 @@ These techniques aim to address data imbalance either through reweighting the lo
 ```bash
 # Single fingerprint with Class-Balanced Focal Loss
 python3 baseline_imbalanced_learning.py \
-    --log_dir ../runs/experiment_cb_focal \
+    --log_dir ../runs/DREAM/experiment_cb_focal \
     --fps_type AVALON \
     --imbalanced CB_F
 
 # Bilateral-Branch Network with multiple fingerprints
 python3 baseline_imbalanced_learning.py \
-    --log_dir ../runs/experiment_bbn \
+    --log_dir ../runs/DREAM/experiment_bbn \
     --fps_type MACCS,RDK,AVALON \
     --imbalanced BBN
 ```

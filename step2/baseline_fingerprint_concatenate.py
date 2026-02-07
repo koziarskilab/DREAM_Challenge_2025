@@ -241,6 +241,11 @@ def main(args):
     # Load datasets
     print("Loading datasets...")
     df_train = Dataset("../datasets/DREAM/Train_Dataset_DREAM.parquet").get_dataframe()
+    # Check and standardize the LABEL column name
+    if 'Label' in df_train.columns and 'LABEL' not in df_train.columns:
+        df_train.rename(columns={'Label': 'LABEL'}, inplace=True)
+    elif 'LABEL' not in df_train.columns and 'Label' not in df_train.columns:
+        raise ValueError("Neither 'LABEL' nor 'Label' column found in training data")
     df_val = Dataset("../datasets/DREAM/Val_Dataset_DREAM_Step2.csv").get_dataframe()
     
     print("------------------------------------------------------------")

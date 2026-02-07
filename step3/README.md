@@ -2,26 +2,31 @@
 
 ## Goal
 Step 3 produces the **DREAM Step 3 submission file** by:
-1) preparing a filtered screening dataset from the **Enamine SDF**, and  
-2) scoring the filtered compounds using **pretrained Step 2 fingerprint models** with a **max-vote ensemble**.
+1) preparing a filtered screening dataset from the **Enamine SDF**,  
+2) scoring the filtered compounds using **pretrained Step 2 fingerprint models** with a **max-vote ensemble**, and  
+3) re-ranking the top 5000 molecules using **Boltz-2 structure prediction** and **molecular docking**.
 
 **Final output (Top 5000):** `Catalog_ID, SMILES, Molecular_Weight, aLogP, Score`  
 Saved as: `../runs/DREAM/step3/TeamKoziarskiLab_Step3.csv`
 
-> Step 3 does **not** train new models. It reuses the best Step 2 models (`../runs/DREAM/step2/.../best_model.pkl`).
+**Re-ranking formula (applied manually):**  
+`final_score = 0.7 × boltz_confidence_score + 0.3 × docking_score`
+
+> Step 3 does **not** train new models. It reuses the best Step 2 models and refines predictions with structure-based methods.
 
 ---
 
-## What’s in this folder
+## What's in this folder
 - `test_set_prep.py` — **SDF → filtered CSV**, removes known actives, applies MW/aLogP filters
 - `test_ml_step3.py` — loads pretrained models, generates predictions in chunks, **max-vote ensemble**, writes Top 5000
+- **`boltz/`** — Boltz-2 structure prediction for re-ranking
+  - `batch_predict.py` — Boltz-2 batch prediction for top 5000 compounds
+  - `config/wdr91_8hsj_pocket_template.yaml` — WDR91 pocket template (skips co-folding)
+- **`docking/`** — Molecular docking for re-ranking
 
 ---
 
 ## Part A — Prepare the Step 3 screening dataset
-
-### Script
-`test_set_prep.py`
 
 ### Inputs
 - Enamine SDF: `../datasets/DREAM/Enamine_screening_collection_202506.sdf`
@@ -47,9 +52,6 @@ python3 test_set_prep.py
 
 ## Part B — Generate Step 3 predictions (pretrained Step 2 models)
 
-### Script
-`test_ml_step3.py`
-
 ### Required input dataset
 This script expects a fingerprint-ready CSV at:
 - `../datasets/DREAM/Test_Step3_Dataset_DREAM_w_FP.csv`
@@ -72,7 +74,7 @@ The script loads these pretrained Step 2 models:
 
 ### Outputs
 Written to `../runs/DREAM/step3/`:
-- **Submission (Top 5000):** `TeamKoziarskiLab_Step3.csv`
+- **Initial Top 5000:** `top5000_ml_predictions.csv`
 - Per-model scores (Top 5000): `test_predictions_individual_models_step3.csv`
 - Run metadata: `ensemble_info.pkl`
 
@@ -83,7 +85,42 @@ python3 test_ml_step3.py
 
 ---
 
-## Notes / troubleshooting
-- **Missing model file:** verify Step 2 has been run and the path matches the expected layout under `../runs/DREAM/step2/`.
-- **Memory:** predictions run in chunks. If needed, reduce `chunk_size` in `process_models_in_chunks(..., chunk_size=...)`.
-- **RDKit required:** `test_set_prep.py` needs RDKit. `test_ml_step3.py` also needs whatever dependencies `helper.ProcessData` uses to compute
+## Part C — Re-rank top 5000 with Boltz-2 structure prediction
+
+### Script
+`boltz/batch_predict.py`
+
+### Input
+- Top 5000 from Part B: `../runs/DREAM/step3/top5000_ml_predictions.csv`
+
+### Template configuration
+Uses pre-configured template:
+- `boltz/config/wdr91_8hsj_pocket_template.yaml`
+
+**Key features:**
+- **Skip co-folding:** Template provides pre-defined WDR91 structure (PDB: 8HSJ)
+- **Pocket specification:** Binding pocket coordinates are pre-defined
+- **Confidence scoring:** Boltz-2 `confidence_score` correlates with binding affinity
+
+### Output
+- `../runs/DREAM/step3/boltz_scores.csv` containing:
+  - `Catalog_ID`, `boltz_confidence_score`
+
+### Run
+```bash
+cd boltz
+python batch_predict.py \
+  --csv_file ../runs/DREAM/step3/top5000_ml_predictions.csv \
+  --template_yaml config/wdr91_8hsj_pocket_template.yaml
+```
+
+---
+
+## Part D — Re-rank top 5000 with molecular docking
+
+
+## Re-ranking formula
+```python
+final_score = 0.7 × boltz_confidence_score + 0.3 × docking_score
+```
+
