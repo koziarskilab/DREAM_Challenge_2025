@@ -2,7 +2,7 @@
 
 <img src="materials/Fig1.png" alt="drawing" width="75%"/>
 
-[[Benchmark](https://www.synapse.org/Synapse:syn65660836/wiki/632249)][[Implementation details](materials/A_Hybrid_AutoML_and_3D_Docking_Workflow_for_DEL_ASMS_Based_Prediction_of_WDR91_Binders_DREAM2025_Writeup.pdf)]
+[[Benchmark](https://www.synapse.org/Synapse:syn65660836/wiki/632249)][[Implementation details](materials/A_Hybrid_AutoML_and_3D_Docking_Workflow_for_DEL_ASMS_Based_Prediction_of_WDR91_Binders.pdf)]
 
 ## Introduction
 We introduce a two-step process to establish robust baselines for compound selection, leveraging automated machine learning (AutoML) and advanced molecular modeling for the DREAM Target 2035 Drug Discovery Challenge. 
