@@ -1,0 +1,3 @@
+SMILES,MOL_ID,VINA_SCORE,SHAPE_SCORE,ESP_SCORE,BEST_SCORE
+O=C(NC1(c2ccc(Cl)cc2)COC1)c1ccc(N2CC[C@H](O)C2)cc1,8SHJligand,,,,
+CN1C(=O)[C@H](c2c(c3ccc(Cl)cc3)[nH]c3c2c(=O)[nH]c(=O)n3C)c2ccccc21,9EJOligand,,,,
