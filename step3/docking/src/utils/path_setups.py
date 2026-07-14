@@ -18,7 +18,6 @@ def project_path_setups():
     pdbqt_recp_dir = job_path / "prepared_receptors_pdbqt"
     pdbqt_lig_dir = job_path / "prepared_ligands_pdbqt"
     docked_lig_poses = job_path / "docked_ligand_poses"
-    
 
     for path in [job_path, pdbqt_recp_dir, pdbqt_lig_dir, docked_lig_poses]:
         if not path.exists():
@@ -33,6 +32,5 @@ def project_path_setups():
         pdbqt_lig_dir,
         docked_lig_poses,
         crystal_ligands_dir,
-        crystal_ligands_dir_cv
-
+        crystal_ligands_dir_cv,
     )

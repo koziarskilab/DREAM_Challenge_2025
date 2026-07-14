@@ -1,9 +1,9 @@
 from meeko import MoleculePreparation, PDBQTWriterLegacy
+from openbabel import openbabel as ob
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
 from .utils import load_config
-from openbabel import openbabel as ob
 
 NUM_CONFS = load_config("Ligand_Embeddings", "num_confs")
 SEED = load_config("Ligand_Embeddings", "random_seed")

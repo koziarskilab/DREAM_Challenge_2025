@@ -1,13 +1,13 @@
-
-from openbabel import openbabel as ob
-import pandas as pd
-import os
-from utils import utils
 import multiprocessing as mp
-from rdkit import Chem
+import os
 from pathlib import Path
+
+import pandas as pd
+from openbabel import openbabel as ob
+from rdkit import Chem
 from rdkit.Chem import AllChem
 
+from utils import utils
 
 CSV_FILE = utils.load_config("Paths", "ligand_file_csv")
 UNPREP_LIGANDS_DIR = utils.load_config("Paths", "unprepared_ligands_dir")
@@ -33,11 +33,11 @@ def process_df(df):
             try:
                 obc = ob.OBConversion()
                 obmol = ob.OBMol()
-                obc.SetInAndOutFormats('smi', 'smi')
+                obc.SetInAndOutFormats("smi", "smi")
                 obc.ReadString(obmol, smiles)
                 obmol.CorrectForPH(ph_val)
                 ph_corrected_smiles = obc.WriteString(obmol).strip()
-            
+
                 mol = Chem.MolFromSmiles(ph_corrected_smiles, sanitize=True)
 
                 if mol is None:
@@ -46,15 +46,17 @@ def process_df(df):
 
                 molh = Chem.AddHs(mol)
 
-                if AllChem.EmbedMolecule(molh, randomSeed=42, enforceChirality=True) != 0:
+                if (
+                    AllChem.EmbedMolecule(molh, randomSeed=42, enforceChirality=True)
+                    != 0
+                ):
                     print(f"Embedding failed for {mol_id}")
                     continue
 
-
                 writer = Chem.SDWriter(
                     Path(UNPREP_LIGANDS_DIR).joinpath(f"{mol_id}.sdf")
-                    )
-                    
+                )
+
                 writer.write(molh)
                 writer.close()
                 # print(f"{mol_id} Smiles converted to sdf file.")
@@ -62,5 +64,6 @@ def process_df(df):
             except Exception as e:
                 print(f"Error processing {mol_id}: {e}")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     csv_to_sdf()

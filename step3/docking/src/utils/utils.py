@@ -1,13 +1,13 @@
+import multiprocessing as mp
 import re
-import yaml
-from rdkit import Chem
+import shutil
+import subprocess
+from pathlib import Path
 
 import pandas as pd
-import multiprocessing as mp
-from pathlib import Path
-import shutil
+import yaml
 from openbabel import openbabel as ob
-import subprocess
+from rdkit import Chem
 from rdkit.Chem import AllChem
 
 
@@ -15,6 +15,7 @@ def load_config(section, key):
     with open("config.yaml", "r") as config_file:
         configs = yaml.safe_load(config_file)
     return configs[section][key]
+
 
 SEED = load_config("Ligand_Embeddings", "random_seed")
 ph_val = load_config("Ligand_Embeddings", "ph_value")
@@ -112,7 +113,7 @@ def pdbqt_to_sdf(pdbqt_path, sdf_path):
             str(pdbqt_path),
             "-s",
             str(sdf_path),
-            ]
+        ]
         subprocess.run(cmd, shell=False, check=True)
     except Exception as e:
         print(f"mk_export commandline failed: {e}")

@@ -1,8 +1,8 @@
 import multiprocessing as mp
 import os
 import time
-from more_itertools import chunked
 
+from more_itertools import chunked
 
 from utils import docking_helper, path_setups, utils
 
@@ -11,9 +11,9 @@ idx = int(os.getenv("SLURM_ARRAY_TASK_ID", 0))
 N_PROCESS = utils.load_config("General_Setup", "num_jobs_per_node")
 BATCH_SIZE = utils.load_config("General_Setup", "batch_size")
 DOCKING_TYPE = utils.load_config("Vina_Docking", "docking_type")
-*_, VINA_DOCKING_RESULTS_PATH,_,_ = path_setups.project_path_setups()
-*_, PDBQT_LIGANDS_PATH, _, _,_ = path_setups.project_path_setups()
-*_, PDBQT_RECEPTORS_PATH, _, _, _,_ = path_setups.project_path_setups()
+*_, VINA_DOCKING_RESULTS_PATH, _, _ = path_setups.project_path_setups()
+*_, PDBQT_LIGANDS_PATH, _, _, _ = path_setups.project_path_setups()
+*_, PDBQT_RECEPTORS_PATH, _, _, _, _ = path_setups.project_path_setups()
 
 
 def sel_req_receptors(r_name):
@@ -64,7 +64,9 @@ def run_vina_docking():
 
         for rec_name in sorted(set(receptors)):
             if not (VINA_DOCKING_RESULTS_PATH / rec_name).exists():
-                (VINA_DOCKING_RESULTS_PATH / rec_name).mkdir(parents=True, exist_ok=True)
+                (VINA_DOCKING_RESULTS_PATH / rec_name).mkdir(
+                    parents=True, exist_ok=True
+                )
 
             try:
                 dock_molecules(rec_name, ligands)

@@ -6,10 +6,7 @@ from openmm.app import PDBFile
 from pdbfixer import PDBFixer
 
 from .path_setups import project_path_setups
-from .utils import (
-    load_config,
-    verify_input_docking_type,
-)
+from .utils import load_config, verify_input_docking_type
 
 DOCKING_TYPE = verify_input_docking_type()
 SEED = load_config("PDB_fixer", "random_seed")
@@ -17,6 +14,7 @@ FLEX_RES = load_config("Vina_Docking", "flex_residues")
 DEL_RES = load_config("Vina_Docking", "del_residues")
 _, _, _, PDBQT_RECEP_DIR, *_ = project_path_setups()
 PDBFixer_pdb_out = Path("./PDBFixer_pdb_out")
+
 
 def fix_pdb_save_pdbqt(pdb_file):
     pdb_name = pdb_file.stem
@@ -32,12 +30,15 @@ def fix_pdb_save_pdbqt(pdb_file):
     fixer.removeHeterogens(False)
     print(f"PDBFixer job done.")
 
-
     with tempfile.TemporaryDirectory() as temp_dir:
         rec_temp_path = Path(temp_dir) / f"{pdb_name}.pdb"
 
         PDBFile.writeFile(fixer.topology, fixer.positions, str(rec_temp_path))
-        PDBFile.writeFile(fixer.topology, fixer.positions, str(f"{PDBFixer_pdb_out}/{pdb_name}_PDBFixerOutput.pdb"))
+        PDBFile.writeFile(
+            fixer.topology,
+            fixer.positions,
+            str(f"{PDBFixer_pdb_out}/{pdb_name}_PDBFixerOutput.pdb"),
+        )
         print(f"Corrected PDB saved at {PDBFixer_pdb_out}")
 
         if not rec_temp_path.exists():
@@ -58,7 +59,7 @@ def fix_pdb_save_pdbqt(pdb_file):
                 DEL_RES,
                 "-p",
                 PDBQT_RECEP_DIR / f"{pdb_name}_regular.pdbqt",
-                "--keep_altloc A"
+                "--keep_altloc A",
             ]
             subprocess.run(cmd, shell=False, check=True)
 

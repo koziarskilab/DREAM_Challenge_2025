@@ -1,7 +1,9 @@
 import multiprocessing as mp
 import os
 import time
+
 from more_itertools import chunked
+
 from utils import prep_ligand_helper, utils
 from utils.path_setups import project_path_setups
 
@@ -51,8 +53,9 @@ def prepare_ligands():
         if is_slurm_used:
             all_batches = list(chunked(all_ligands, BATCH_SIZE))
             all_ligands = all_batches[idx]
-            print(f"Total ligand batches: {len(all_batches)} | batch size: {len(all_ligands)}")
-
+            print(
+                f"Total ligand batches: {len(all_batches)} | batch size: {len(all_ligands)}"
+            )
 
         with mp.Pool(N_PROCESS) as pool:
             pool.map(process_ligands, all_ligands)
