@@ -4,7 +4,7 @@
 This docking code is customized for WDR91 docking using the protein structure **8SHJ** and a box of **20A around the crystal ligand** to identify potential WDR91 hits. Importantly, instead of using the default ADVina docking score, a **custom scorer** is implemented to select the final docked poses.
 
 ## Custom Scorer
-- The customized scorer (**BEST_SCORE**) is based on the electrostatic and shape similarity of docked ligands with the crystal ligands. For this, the **ESP_SIM** package (https://github.com/hesther/espsim) is integrated into the docking pipeline.
+The customized scorer (**BEST_SCORE**) is based on the electrostatic and shape similarity of docked ligands with the crystal ligands. For this, the **ESP_SIM** package (https://github.com/hesther/espsim) is integrated into the docking pipeline.
 
 First, docking generates **20 docked poses per ligand**, followed by the comparison of these docking poses with experimental binding poses of **6 crystal ligands** stored in
 
@@ -105,7 +105,7 @@ python src/code/docking.py
 
 This will generate and save the docking poses in `.sdf` format under:
 
-```vina_results/WDR91_crystal_ligands_docking/docked_ligand_poses/8SHJ```
+```vina_results/WDR91_crystal_ligands_docking/docked_ligand_poses/{receptor_file_name}```
 
 
 ### Results Collection
@@ -115,13 +115,14 @@ python src/code/get_scores_in_csv.py
 ```
 
 This will save the results as:
-```vina_results/WDR91_crystal_ligands_docking/docked_ligand_poses/8SHJ/results_8SHJ.csv```
+```vina_results/WDR91_crystal_ligands_docking/docked_ligand_poses/{receptor_file_name}/results_{receptor_file_name}.csv```
 
 This CSV file should have fetched scores from docked molecules, i.e., VINA_SCORE, SHAPE_SCORE, ESP_SCORE and BEST_SCORE.
-	- VINA_SCORE: default ADVina score
-	- SHAPE_SCORE: shape similarity score between the docked molecule and the best matching crystal ligand.
-	- ESP_SCORE: electrostatic similarity score between the docked molecule and the best matching crystal ligand.
-	- BEST_SCORE: A weighted score between the docked molecule and the best matching crystal ligands.
+
+- VINA_SCORE: default ADVina score
+- SHAPE_SCORE: shape similarity score between the docked molecule and the best matching crystal ligand.
+- ESP_SCORE: electrostatic similarity score between the docked molecule and the best matching crystal ligand.
+- BEST_SCORE: A weighted score between the docked molecule and the best matching crystal ligands.
 
 High BEST_SCORE is the best; Have fun!
 
