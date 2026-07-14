@@ -30,10 +30,7 @@ conda env create -f environment.yaml
 conda activate wdr91_docking
 ```
 
-
-## Instructions
-
-### Configuration File
+## Configuration File
 - All docking parameters are defined in 
 
 ```config.yaml``` 
@@ -49,7 +46,7 @@ To activate SLURM-based parallel processing across multiple cluster nodes, chang
 ```slurm_use: True```
 
 
-### Protein Preparation
+## Protein Preparation
 For docking, an appropriately prepared protein structure is required, which includes:
 - Correct protonation states
 - Solvent treatment
@@ -72,7 +69,7 @@ Based on the `job name` in `configuration` file, a docking-ready protein will be
 
 This receptor file is ready for WDR91 docking. 
 
-### Ligand Preparation
+## Ligand Preparation
 All molecules to be docked are provided in **.csv file** 
  
 ```data/wdr91_crystal_ligands.csv``` 
@@ -97,7 +94,7 @@ The docking-ready `.pdbqt` format molecules are saved under:
 ```vina_results/WDR91_crystal_ligands_docking/prepared_ligands_pdbqt```
 
 
-### Docking
+## Docking
 Docking process can be started using :
 ```bash
 python src/code/docking.py
@@ -108,7 +105,7 @@ This will generate and save the docking poses in `.sdf` format under:
 ```vina_results/WDR91_crystal_ligands_docking/docked_ligand_poses/{receptor_file_name}```
 
 
-### Results Collection
+## Results Collection
 The docking scores of the molecules can be collected using:
 ```bash
 python src/code/get_scores_in_csv.py
@@ -126,7 +123,7 @@ This CSV file should have fetched scores from docked molecules, i.e., VINA_SCORE
 
 High BEST_SCORE is the best; Have fun!
 
-### Try This Simple Workflow for WDR91 Docking
+## Try This Simple Workflow for WDR91 Docking
 First clear previous results:
 
 ```bash
