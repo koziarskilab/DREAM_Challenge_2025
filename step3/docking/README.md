@@ -67,7 +67,7 @@ Based on the `job name` in `configuration` file, a docking-ready protein will be
 
 ``` vina_results/WDR91_crystal_ligands_docking/prepared_receptors_pdbqt```
 
-This receptor file is ready for WDR91 docking. 
+`8SHJ_regular.pdbqt` receptor file is ready for WDR91 docking. 
 
 ## Ligand Preparation
 All molecules to be docked are provided in **.csv file** 
@@ -91,6 +91,7 @@ python src/code/prep_ligand.py
 ```
 
 The docking-ready `.pdbqt` format molecules are saved under:
+
 ```vina_results/WDR91_crystal_ligands_docking/prepared_ligands_pdbqt```
 
 
