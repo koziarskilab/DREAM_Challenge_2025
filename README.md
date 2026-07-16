@@ -1,11 +1,11 @@
-# A Hybrid AutoML and 3D Docking Workflow for DEL-ASMS-Based Prediction of WDR91 Binders
+# A Hybrid AutoML and 3D Docking Workflow for DEL-ASMS-Based Prediction of WDR91 Binders [the 2nd place solution of the First DREAM Target 2035 Drug Discovery Challenge]
 
-<img src="materials/Fig1.png" alt="drawing" width="75%"/>
+<img src="materials/Fig1.png" alt="drawing" width="150%"/>
 
 [[Benchmark](https://www.synapse.org/Synapse:syn65660836/wiki/632249)][[Implementation details](materials/A_Hybrid_AutoML_and_3D_Docking_Workflow_for_DEL_ASMS_Based_Prediction_of_WDR91_Binders.pdf)]
 
 ## Introduction
-We introduce a two-step process to establish robust baselines for compound selection, leveraging automated machine learning (AutoML) and advanced molecular modeling for the DREAM Target 2035 Drug Discovery Challenge. 
+We introduce a three-step process to establish robust baselines for compound selection, leveraging automated machine learning (AutoML) and advanced molecular modeling for the First DREAM Target 2035 Drug Discovery Challenge. 
 
 Step 1 centers on the use of AutoML with molecular fingerprints, aiming to systematically optimize both classification accuracy and chemical diversity. This step encompasses data preprocessing, optimal metric identification with AutoML, baseline model training, fingerprint correlation analysis, cross-fingerprint model ensembling, and final test set prediction—each component building upon the previous to refine predictive performance.
 
@@ -15,6 +15,10 @@ Step 3 extends the workflow to large-scale screening of the Enamine collection, 
 
 
 ## Installation
+
+The workflow uses two separate conda environments: 
+
+### ML environment
 ```
 conda create -n dream_challenge_2025 python=3.11
 conda activate dream_challenge_2025
@@ -23,9 +27,24 @@ pip install -e .[cuda]
 pip install flaml ipython pyarrow matplotlib xgboost lightgbm
 ```
 
+### Docking environment
+```
+cd step2/docking/
+conda env create -f environment.yaml
+conda activate wdr91_docking
+```
+`step2/docking/` and `step3/docking/` are identical — either directory works.
+
 
 
 ## Benchmark
+
+### Step 2
 <img src="materials/Fig2.jpg" alt="drawing" width="75%"/>
 
 We are at the 3rd place of the Step 2 in the first DREAM Target 2035 Drug Discovery Challenge.
+
+### Step 3
+<img src="materials/Fig3.png" alt="drawing" width="75%"/>
+
+We are at the 2nd place of the Step 3 in the first DREAM Target 2035 Drug Discovery Challenge.
