@@ -1,0 +1,68 @@
+# batch size: num of molecules to process per node.
+# num_jobs_per_node = parallel jobs per node. 
+# let say we are docking 1000 molecules and have 10 nodes (and SLURM job scheduler). Then, we will process 100 mols/node (batch size).
+# let say we have 40 cores/node; then, we need to balance the 'num_jobs_per_node' and 'cpu_per_ligand_exhaustiveness'
+# 'num_jobs_per_node' * 'cpu_per_ligand_exhaustiveness' = total cores/node.
+# higher cpu_per_ligand_exhaustiveness means faster dockings (4 or 8 are good numbders).
+# I would prefer to use cpu_per_ligand_exhaustiveness=4, and num_jobs_per_node=10; more docking jobs at a time
+
+General_Setup:
+  job_name: "WDR91_crystal_ligands_docking"
+  ligand_file_type: 'sdf'
+
+  # how many jobs to run in parallel per node.
+  num_jobs_per_node: 2
+
+  # use SLURM for large datasets? batch size: molecules/node 
+  slurm_use: False
+  batch_size: 10
+
+  # pose_filtering= Ture uses custom_scorer with shape and Esp sim score. False: use default vina_scorer.
+  # weights could be customized, but 0.5 for both works well.
+  pose_filtering: True
+  shape_weight: 0.5
+  esp_weight: 0.5
+  
+Paths:
+  unprepared_receptors_dir: "./data/receptors"
+  unprepared_ligands_dir: "./data/ligands"
+  crystal_ligands_dir: "./data/crystal_ligands"
+  crystal_ligands_dir_cv: "./data/cls_for_cv"
+  results_base_dir: "./vina_results/"
+
+  # input the path to the csv file with SMILS and MOL_ID and other required column names (with empty cells)
+  ligand_file_csv: './data/wdr91_crystal_ligands.csv'
+
+# Choices for the ligand embeddings. No need to change
+Ligand_Embeddings:
+  ph_value: 7.4
+  num_confs: 100
+  random_seed: 42
+  num_threads: 2
+  max_iters: 500
+
+PDB_fixer:
+  random_seed: 42
+ 
+# docking type: "regular" rigid or "flexible" residues
+Vina_Docking:
+  docking_type: 'regular'
+  flex_residues: ""
+  del_residues: ""
+
+  # docked files to save? ("sdf" or "both" (+pdbqt).
+  docked_poses_file_type: 'sdf'
+  
+  random_seed: 42
+
+  # input the center for the docking site, box size and exhaustiveness
+  center: [42.06, 3.80, 18.55] # WDR91 crystal ligand centroid
+  box_size: [20, 20, 20]
+  exhaustiveness: 32
+
+  # ADVina genrates 20 poses; can generate more poses also. 
+  # cpu_per_ligand_exhaustiveness= cpus to use per docking (depends upon availbale resources; 4 and 8 are good)
+  generate_poses: 20
+  cpu_per_ligand_exhaustiveness: 4
+
+
