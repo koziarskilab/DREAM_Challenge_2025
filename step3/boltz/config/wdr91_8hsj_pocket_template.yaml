@@ -1,0 +1,23 @@
+sequences:
+  - protein:
+      id: [A]
+      sequence: QPFIVLGQEEYGEHHSSIMHCRVDCSGRRVASLDVDGVIKVWSFNPIMQTKASSISKSPLLSLEWATKRDRLLLLGSGVGTVRLYDTEAKKNLCEININDNMPRILSLACSPNGASFVCSAAAPSLTSQVPGRLLLWDTKTMKQQLQFSLDPEPIAINCTAFNHNGNLLVTGAADGVIRLFDMQQHECAMSWRAHYGEVYSVEFSYDENTVYSIGEDGKFIQWNIHKSGLKVSEYSLPSDATGPFVLSGYSGYKQVQVPRGRLFAFDSEGNYMLTCSATGGVIYKLGGDEKVLESCLSLGGHRAPVVTVDWSTAMDCGTCLTASMDGKIKLTTLLA
+  - ligand:
+      smiles: C1C[C@H](c2cccc(C#N)c12)NC(c1ccc(cc1)Nc1c2ccccc2ncn1)=O
+      id: [B]
+constraints:
+  - pocket:
+      binder: B
+      contacts: [ [ A, 68 ], [ A, 71 ], [ A, 74 ], [ A, 76 ], [ A, 86 ], [ A, 95 ], [ A, 96 ], [ A, 98 ], [ A, 112 ], [ A, 116 ], [ A, 119 ], [ A, 141 ], [ A, 142 ], [ A, 143 ], [ A, 144 ] ]
+      force: true
+templates:
+    - cif: templates/8shj_single.cif
+      chain_id: [A]
+      template_id: [A]
+      force: true
+      threshold: 0.0
+properties:
+    - affinity:
+        binder: B
+
+
