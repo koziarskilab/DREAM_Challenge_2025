@@ -6,9 +6,9 @@ from rdkit.Chem import AllChem
 import numpy as np
 
 # Load all three datasets
-file_path_0 = '../datasets/DREAM/Val_Dataset_DREAM_0.parquet'
-file_path_1 = '../datasets/DREAM/Val_Dataset_DREAM_1.parquet'
-file_path_2 = '../datasets/DREAM/public_ligends_WDR91_with_fps.csv'
+file_path_0 = '../../datasets/DREAM/Val_Dataset_DREAM_0.parquet'
+file_path_1 = '../../datasets/DREAM/Val_Dataset_DREAM_1.parquet'
+file_path_2 = '../../datasets/DREAM/public_ligends_WDR91_with_fps.csv'
 
 # Load parquet files
 data_0 = pd.read_parquet(file_path_0)

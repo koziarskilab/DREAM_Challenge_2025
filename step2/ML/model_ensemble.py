@@ -18,7 +18,7 @@ import pickle
 
 def load_pretrained_model(model_type, fingerprint_combo):
     """Load a pretrained model from the specified path"""
-    model_path = f"../runs/DREAM/step2/{model_type}/{fingerprint_combo}/best_model.pkl"
+    model_path = f"../../runs/DREAM/step2/{model_type}/{fingerprint_combo}/best_model.pkl"
     
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"Model not found at {model_path}")
@@ -381,8 +381,8 @@ def main(args):
     parent_dir = os.path.dirname(os.path.abspath(args.log_dir))
 
     # Load datasets
-    df_train = Dataset("../datasets/DREAM/Train_Dataset_DREAM.parquet").get_dataframe()
-    df_val = Dataset("../datasets/DREAM/Val_Dataset_DREAM_Step2.csv").get_dataframe()
+    df_train = Dataset("../../datasets/DREAM/Train_Dataset_DREAM.parquet").get_dataframe()
+    df_val = Dataset("../../datasets/DREAM/Val_Dataset_DREAM_Step2.csv").get_dataframe()
 
     print("------------------------------------------------------------")
     print("Number of binders in the training set:", (df_train["LABEL"] == 1).sum())

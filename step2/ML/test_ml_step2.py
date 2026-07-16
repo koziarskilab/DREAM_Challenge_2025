@@ -9,7 +9,7 @@ import datetime
 
 def load_pretrained_model(model_type, fingerprint_combo):
     """Load a pretrained model from the specified path"""
-    model_path = f"../runs/DREAM/step2/{model_type}/{fingerprint_combo}/best_model.pkl"
+    model_path = f"../../runs/DREAM/step2/{model_type}/{fingerprint_combo}/best_model.pkl"
     
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"Model not found at {model_path}")
@@ -41,8 +41,8 @@ def generate_test_predictions_step2():
     
     # Load datasets
     print("Loading datasets...")
-    df_train = Dataset("../datasets/DREAM/Train_Dataset_DREAM.parquet").get_dataframe()
-    df_test = Dataset("../datasets/DREAM/Step2_TestData_Target2035.parquet").get_dataframe()
+    df_train = Dataset("../../datasets/DREAM/Train_Dataset_DREAM.parquet").get_dataframe()
+    df_test = Dataset("../../datasets/DREAM/Step2_TestData_Target2035.parquet").get_dataframe()
     
     print(f"Training set shape: {df_train.shape}")
     print(f"Test set shape: {df_test.shape}")
@@ -158,11 +158,11 @@ def generate_test_predictions_step2():
     final_result = result_df[['RandomID', 'SMILES', 'Sel_50', 'Sel_200', 'Sel_500', 'Sel_5000', 'Score']].copy()
     
     # Ensure the output directory exists
-    output_dir = "../runs/DREAM/step2"
+    output_dir = "../../runs/DREAM/step2"
     os.makedirs(output_dir, exist_ok=True)
     
     # Save results to the specified DREAM challenge step 2 submission path
-    output_path = "../runs/DREAM/step2/TeamKoziarskiLab_Step2.csv"
+    output_path = "../../runs/DREAM/step2/TeamKoziarskiLab_Step2.csv"
     final_result.to_csv(output_path, index=False)
     
     print(f"\nDREAM Challenge Step2 results saved to: {output_path}")
@@ -187,7 +187,7 @@ def generate_test_predictions_step2():
     for i, (model_type, fingerprint_combo) in enumerate(model_info):
         individual_predictions_df[f"{model_type}_{fingerprint_combo}"] = predictions_array_test[i]
     
-    individual_path = "../runs/DREAM/step2/test_predictions_individual_models_step2.csv"
+    individual_path = "../../runs/DREAM/step2/test_predictions_individual_models_step2.csv"
     individual_predictions_df.to_csv(individual_path, index=False)
     print(f"Individual model predictions saved to: {individual_path}")
     
@@ -202,7 +202,7 @@ def generate_test_predictions_step2():
         "test_compounds": len(final_result)
     }
     
-    meta_info_path = "../runs/DREAM/step2/meta_learner_info.pkl"
+    meta_info_path = "../../runs/DREAM/step2/meta_learner_info.pkl"
     with open(meta_info_path, "wb") as f:
         pickle.dump(meta_learner_info, f, pickle.HIGHEST_PROTOCOL)
     print(f"Meta-learner info saved to: {meta_info_path}")
@@ -227,7 +227,7 @@ if __name__ == "__main__":
     if results is not None:
         print("\n" + "=" * 80)
         print("SUCCESS: DREAM Challenge Step2 predictions generated successfully!")
-        print("Submission file created: ../runs/DREAM/step2/TeamKoziarskiLab_Step2.csv")
+        print("Submission file created: ../../runs/DREAM/step2/TeamKoziarskiLab_Step2.csv")
         print("File format: RandomID, SMILES, Sel_50, Sel_200, Sel_500, Sel_5000, Score")
         print("Ready for DREAM Challenge Step 2 submission!")
     else:
